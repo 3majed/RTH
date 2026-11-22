@@ -34,12 +34,32 @@ function RTH.ScanSkills()
   if GetNumSkillLines() == 0 then return end
   local profs, maxes = {}, {}
   local collapsed = false   -- a collapsed header (Skills tab) hides its lines from GetSkillLineInfo
+  local unknown = {}   -- { rank, max, header }: unlearnable lines no spell name matched (see Herbalism below)
+  local header = 0
   for i = 1, GetNumSkillLines() do
-    local name, isHeader, isExpanded, rank, _, _, maxRank = GetSkillLineInfo(i)
+    local name, isHeader, isExpanded, rank, _, _, maxRank, isAbandonable = GetSkillLineInfo(i)
+    if isHeader then header = header + 1 end
     if isHeader and not isExpanded then collapsed = true end
     local skill = not isHeader and skillByName(name)
-    if skill then profs[skill] = rank; maxes[skill] = maxRank end
+    if skill then profs[skill] = rank; maxes[skill] = maxRank
+    elseif not isHeader and isAbandonable then unknown[#unknown + 1] = { rank, maxRank, header } end
   end
+  -- Herbalism on any game language (2026-11-22): every other profession matches its own spell's name in the client's
+  -- language; Herbalism's spell is "Herb Gathering", so only the English skill name matched. An unlearnable line that
+  -- nothing else matched is Herbalism - except the languages ("Language: Common" is unlearnable too, SkillRaceClassInfo
+  -- flag 0x20), which are always under the LAST header (every character has one; it comes after weapons and armor).
+  -- Two or more such lines: can't tell, leave it. And only when this character really knows Find Herbs (2383, which
+  -- Herbalism teaches by itself - SkillLineAbility): GetSpellInfo(name) answers only for spells in YOUR spellbook,
+  -- so another profession whose spell name doesn't match on some language is never taken for Herbalism.
+  local herb
+  for _, u in ipairs(unknown) do
+    if u[3] ~= header then
+      if herb == nil then herb = u else herb = false end
+    end
+  end
+  local findHerbs = herb and GetSpellInfo(2383)
+  if herb and not (findHerbs and GetSpellInfo(findHerbs)) then herb = nil end
+  if not profs[182] and herb then profs[182], maxes[182] = herb[1], herb[2] end
   local changed = false
   for k, v in pairs(profs) do
     if RTH.char.profs[k] ~= v or RTH.char.profMax[k] ~= maxes[k] then changed = true end

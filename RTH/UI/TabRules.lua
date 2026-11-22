@@ -77,6 +77,13 @@ local function build(f)
     if RTH.UpdateMinimapButton then RTH.UpdateMinimapButton() end
   end)
   f.minimap:SetPoint("TOPLEFT", f, "TOPLEFT", 250, -24)
+  -- the rules in plain words (2026-11-22): a window with your phase, the raids open to you and what's allowed
+  f.howRules = UI.Button(f, "How the rules work", 150, 22, function() RTH.ShowRules() end)
+  f.howRules:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, 1)
+  UI.Tip(f.howRules, function(tt)
+    tt:AddLine("How the rules work")
+    tt:AddLine("Your phase, the raids open to you, and what you may wear, buy, trade and use - in plain words.", 0.72, 0.72, 0.72, true)
+  end)
 
   -- your phase (1.4.0: each character opens its own next phase by finishing its gate - no unlock button)
   f.phaseText = UI.Text(f, nil, UI.GOLD)

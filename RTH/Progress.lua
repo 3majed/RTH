@@ -346,7 +346,7 @@ local function checkInstance()
     session = visit   -- kills, wipes and deaths of tonight's raid (Extras shows the summary on leaving)
     noteRaidMembers()
     if st.is25 then once("entered a 25-man raid (" .. tostring(st.name) .. ")") end
-    if st.phase and st.phase > phase and st.name ~= "Vault of Archavon" then
+    if st.phase and st.phase > phase and st.map ~= RTH.VOA_MAP then   -- (by map ID: any game language)
       once("entered " .. st.name .. " " .. opensText(st.phase))
     end
     catchUpWarning(st)
@@ -373,8 +373,10 @@ RTH.On("LFG_PROPOSAL_SHOW", function()
   if not RTH.Active() or not GetLFGProposal then return end
   local exists, _, _, name = GetLFGProposal()
   if not exists or not name then return end
-  for _, d in pairs(RTH_Dungeons) do
-    if d.name == name and d.phase > RTH.MyPhase() then
+  local map = RTH.InstanceMap(name)   -- the Dungeon Finder's name, in any game language (2026-11-22)
+  local d = map and RTH_Dungeons[map]
+  if d then
+    if d.phase > RTH.MyPhase() then
       local text = name .. (d.phase <= RTH.GetPhase() and " isn't open for you yet (catching up)" or (" opens in " .. RTH.PhaseLabel(d.phase)))
         .. " - decline it: going in is a rule break"
       RTH.Print("|cffff4040" .. text .. "|r")
@@ -395,11 +397,14 @@ end)
 -- after the fact with hooksecurefunc, never replaced.)
 -- the phase a Dungeon Finder entry opens in, when that's later than now (normal and heroic share the name)
 local function lfdLockedPhase(dungeonID)
-  local name = GetLFGDungeonInfo and GetLFGDungeonInfo(dungeonID)
-  if not name then return nil end
-  for _, d in pairs(RTH_Dungeons) do
-    if d.name == name and d.phase > RTH.MyPhase() then return d.phase end
+  -- by the Dungeon Finder's own ID (language-free, 2026-11-22); a name only for an ID RTH doesn't list
+  local map = RTH.LFG_TO_MAP[dungeonID]
+  if not map then
+    local name = GetLFGDungeonInfo and GetLFGDungeonInfo(dungeonID)
+    map = name and RTH.InstanceMap(name)
   end
+  local d = map and RTH_Dungeons[map]
+  if d and d.phase > RTH.MyPhase() then return d.phase end
 end
 RTH.LFDLockedPhase = lfdLockedPhase
 -- untick every locked dungeon - also the ones inside collapsed headers, which the list doesn't draw but
@@ -534,9 +539,12 @@ local function scanLockouts()
   local list = {}
   for i = 1, GetNumSavedInstances() do
     local name, id, reset, difficulty, _, _, _, isRaid, maxPlayers = GetSavedInstanceInfo(i)
-    if isRaid and reset and reset > 0 and name and RTH.RAIDS[name] then
+    -- the raid by its name in any game language; kept under RTH's English name, so players with different game
+    -- languages still match each other's lockouts in Raid Check (2026-11-22)
+    local _, _, en = RTH.RaidByName(name)
+    if isRaid and reset and reset > 0 and name and en then
       local size = (maxPlayers and maxPlayers > 0) and maxPlayers or ((difficulty == 2 or difficulty == 4) and 25 or 10)
-      list[#list + 1] = { name = name, id = id, ends = time() + reset, size = size, heroic = difficulty == 3 or difficulty == 4 }
+      list[#list + 1] = { name = en, id = id, ends = time() + reset, size = size, heroic = difficulty == 3 or difficulty == 4 }
       if size == 25 and not RTH.char.lockBreaks[id] then
         RTH.char.lockBreaks[id] = true
         if not baseline and RTH.Active() and not enteredRecently(name) then

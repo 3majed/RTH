@@ -2,7 +2,7 @@
 ## Title: Road to Halion
 ## Notes: Tracks the Road to Halion challenge: phases, rules, professions and an honest journey log.
 ## Author: Majed
-## Version: 1.6.0
+## Version: 1.6.1
 ## SavedVariables: RTH_DB
 ## SavedVariablesPerCharacter: RTH_CharDB
 

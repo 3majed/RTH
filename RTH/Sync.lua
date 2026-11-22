@@ -17,6 +17,10 @@
 --   F  item search (asker -> group): text          f  answer (whisper): text|itemID:bags:bank,...
 --   O  this character switched the challenge off (no payload) - out of the group until it reports again
 --   M  the guild master's comment on a rule break (GM only): breakTime|who|breakKey|note   (empty note = removed)
+--   E  the guild master deletes a rule break (GM only): breakTime|who|breakKey|deleteTime   (X|d / x|d in catch-ups)
+--   k  a kill's new star count, from the player whose RTH recorded it: killTime|bossKey|stars
+--   q  "I don't have the guild master's rules" (GUILD)    u  a member's copy of them: G|<G fields> or N|<N fields>
+--   W / w may carry "|1": this account never had the full list of deletes - send all of them (90 days)
 --   Relay (see "relay" below): what offline players sent, passed on by whoever is online
 --   I  login list (GUILD): batch|part|parts|logWindow|name:age,...   o  offer (whisper): logCount|name:age,...
 --   g  "send me these players" (whisper): name,...    s  a player's copy (whisper): name|age|kind|<that kind's fields>
@@ -69,6 +73,21 @@ function RTH.BreakForMessage(text, limit)
   text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1")
   if #text > limit then text = cutBytes(text, limit - 3) .. "..." end
   return text
+end
+-- Is this the same rule break text? A break travels shortened (live 240 bytes, catch-up / relay / own reports 200),
+-- so one copy can be a cut of another: equal, or one ends in "..." and the other starts with the same plain text.
+-- (Plain full-text compare let a long break land twice in a log - fixed 2026-11-22.)
+local function plainBreak(s)
+  return (tostring(s or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h(.-)|h", "%1"))
+end
+function RTH.SameBreakText(a, b)
+  if a == b then return true end
+  a, b = plainBreak(a), plainBreak(b)
+  if a == b then return true end
+  if #a > #b then a, b = b, a end   -- a = the shorter one
+  if a:sub(-3) ~= "..." then return false end
+  local stem = a:sub(1, -4)
+  return #stem >= 20 and b:sub(1, #stem) == stem
 end
 
 -- On the wire every "|" becomes a TAB, and back on arrival. "|" starts colour codes and links in WoW chat, and a
@@ -257,22 +276,30 @@ local function newBatch()
   return tostring(time() % 100000) .. batchCount
 end
 
-function RTH.BroadcastGate(p)
+-- the fields of a gate / the core list, as message parts (also what a member passes on: "u" below)
+local function gateParts(p)
   local gate = RTH.db.group.gates[p]
   local ids = {}
   for _, id in ipairs(gate.ids) do ids[#ids + 1] = tostring(id) end
-  local chunks, batch = chunked(ids, 200), newBatch()
+  local chunks, batch, out = chunked(ids, 200), newBatch(), {}
   for i, c in ipairs(chunks) do
-    RTH.Send("G", p .. "|" .. (gate.opt and 1 or 0) .. "|" .. batch .. "|" .. i .. "|" .. #chunks .. "|" .. c)
+    out[#out + 1] = p .. "|" .. (gate.opt and 1 or 0) .. "|" .. batch .. "|" .. i .. "|" .. #chunks .. "|" .. c
   end
+  return out
 end
-
-function RTH.BroadcastRoster()
+local function rosterParts()
   local r = RTH.db.group.roster
-  local chunks, batch = chunked(r.names, 200), newBatch()
+  local chunks, batch, out = chunked(r.names, 200), newBatch(), {}
   for i, c in ipairs(chunks) do
-    RTH.Send("N", (r.rank or "-") .. "|" .. batch .. "|" .. i .. "|" .. #chunks .. "|" .. c)
+    out[#out + 1] = (r.rank or "-") .. "|" .. batch .. "|" .. i .. "|" .. #chunks .. "|" .. c
   end
+  return out
+end
+function RTH.BroadcastGate(p)
+  for _, m in ipairs(gateParts(p)) do RTH.Send("G", m) end
+end
+function RTH.BroadcastRoster()
+  for _, m in ipairs(rosterParts()) do RTH.Send("N", m) end
 end
 
 -- ---------------------------------------------------------------- what we receive
@@ -448,41 +475,110 @@ local function collect(key, batch, part, parts, items)
   return all
 end
 
-handlers.G = function(sender, phase, opt, batch, part, parts, ids)
-  if not RTH.IsRulesKeeper(sender) then return end
+-- relayed = a member passing on its copy of the guild master's gate ("u|G|..." below)
+local function applyGate(sender, relayed, phase, opt, batch, part, parts, ids)
   local p = int(phase, 1, RTH.MAX_PHASE)
   if not p or not RTH.db.group.gates[p] then return end
+  local g = RTH.db.group
+  g.gateRelayed = g.gateRelayed or {}
+  if relayed and g.gateSynced[p] then return end   -- we have the guild master's own: a copy never replaces it
   local list = {}
   for id in (ids or ""):gmatch("%d+") do
     local n = int(id, 1)
     if n then list[#list + 1] = n end
   end
-  list = collect(sender .. ">G" .. p, batch, int(part, 1, MAX_PARTS), int(parts, 1, MAX_PARTS), list)
+  list = collect(sender .. (relayed and ">uG" or ">G") .. p, batch, int(part, 1, MAX_PARTS), int(parts, 1, MAX_PARTS), list)
   if not list then return end
   -- the guild master's RTH resends every gate on hello: only say something when it really changed
-  local g = RTH.db.group
   local old = g.gates[p]
   local same = old.opt == (opt == "1") and #old.ids == #list
   if same then for i, id in ipairs(list) do if old.ids[i] ~= id then same = false; break end end end
+  if relayed then
+    g.gateRelayed[p] = sender   -- a copy, until the guild master's own arrives
+    if same then return end
+    g.gates[p] = { ids = list, opt = opt == "1" }
+    RTH.Fire("GATES_CHANGED")
+    return
+  end
   local known = g.gateSynced[p]
   g.gateSynced[p] = true
+  g.gateRelayed[p] = nil
   if same then return end
   g.gates[p] = { ids = list, opt = opt == "1" }
   -- the first copy (a new member joining) is not a change: only say so when an earlier gate was replaced
   if known then RTH.Print(sender .. " changed the unlock gate of " .. RTH.PhaseLabel(p)) end
   RTH.Fire("GATES_CHANGED")
 end
-handlers.N = function(sender, rank, batch, part, parts, names)
+handlers.G = function(sender, ...)
   if not RTH.IsRulesKeeper(sender) then return end
+  applyGate(sender, false, ...)
+end
+local function applyRoster(sender, relayed, rank, batch, part, parts, names)
+  local g = RTH.db.group
+  if relayed and g.rosterSynced then return end   -- we have the guild master's own list
   local list = {}
   for n in (names or ""):gmatch("[^,]+") do list[#list + 1] = n end
-  list = collect(sender .. ">N", batch, int(part, 1, MAX_PARTS), int(parts, 1, MAX_PARTS), list)
+  list = collect(sender .. (relayed and ">uN" or ">N"), batch, int(part, 1, MAX_PARTS), int(parts, 1, MAX_PARTS), list)
   if not list then return end
-  local r = RTH.db.group.roster
+  local r = g.roster
   r.rank = int(rank, 0, 9)
   r.names = list
+  if relayed then g.rosterRelayed = sender else g.rosterSynced, g.rosterRelayed = true, nil end
   RTH.Fire("ROSTER_CHANGED")
 end
+handlers.N = function(sender, ...)
+  if not RTH.IsRulesKeeper(sender) then return end
+  applyRoster(sender, false, ...)
+end
+
+-- ---------------------------------------------------------------- the guild master's rules, passed on (2026-11-22)
+-- A member who installs RTH while the guild master is offline has the DEFAULT gates and an empty core list until
+-- the guild master logs in. So, ~35 s after login, when some gate (or the core list) never came from the guild
+-- master and the guild master is offline: "q" on the guild. Everyone holding the guild master's own rules answers
+-- after a random 2-7 s - on the guild channel, so the first answer cancels everybody else's: "u|G|<G fields>" per
+-- gate and "u|N|<N fields>" (the same fields as the guild master's own G / N). A copy is used only while that gate
+-- or list never came from the guild master (g.gateRelayed / g.rosterRelayed = who passed it on); the guild master's
+-- own replaces it when they're online, and a phase passed on a different gate is checked again then
+-- (GATES_CHANGED). Trust: guild members, like the rest of the relay (user's choice 2026-11-20).
+local rulesAnswerAt, rulesHeard = 0, 0   -- rulesHeard: how many "u" copies we've heard (someone answered)
+local function haveGMRules()
+  local g = RTH.db.group
+  for p = 1, RTH.MAX_PHASE do if not g.gateSynced[p] then return false end end
+  return true
+end
+function RTH.AskRules()
+  if not RTH.Active() or not IsInGuild() or RTH.IAmRulesKeeper() or haveGMRules() and RTH.db.group.rosterSynced then return end
+  local gm = RTH.GuildMasterName()
+  if gm and RTH.GuildOnline(gm) == true then return end   -- the guild master sends the real rules with the hello
+  RTH.Send("q", "1")
+end
+handlers.q = function(sender)
+  if not RTH.IsGuildMember(sender) or not haveGMRules() then return end
+  if GetTime() - rulesAnswerAt < 60 then return end   -- answered someone a moment ago
+  local wait = 2 + math.random() * 5
+  local heardBefore = rulesHeard
+  RTH.After("rulesAnswer", wait, function()
+    if rulesHeard ~= heardBefore then return end   -- someone else answered first
+    rulesAnswerAt = GetTime()
+    for p = 1, RTH.MAX_PHASE do
+      for _, m in ipairs(gateParts(p)) do RTH.Send("u", "G|" .. m) end
+    end
+    if RTH.db.group.rosterSynced then
+      for _, m in ipairs(rosterParts()) do RTH.Send("u", "N|" .. m) end
+    end
+  end)
+end
+handlers.u = function(sender, sub, ...)
+  rulesHeard = rulesHeard + 1
+  if not RTH.IsGuildMember(sender) or RTH.IsRulesKeeper(sender) then return end   -- (the GM sends G / N itself)
+  local g = RTH.db.group
+  local wasCopy = next(g.gateRelayed or {}) or g.rosterRelayed
+  if sub == "G" then applyGate(sender, true, ...) elseif sub == "N" then applyRoster(sender, true, ...) end
+  if not wasCopy and (next(g.gateRelayed or {}) or g.rosterRelayed) then
+    RTH.Print("using " .. sender .. "'s copy of the guild master's rules (gates, core list) until the guild master is online")
+  end
+end
+RTH.Listen("LOGIN", function() RTH.After("rulesAsk", 35, RTH.AskRules) end)
 -- only bosses / dungeons this version knows (a broken key would write a junk kill into the log)
 local function bossInfo(key)
   local b = key and RTH.BOSS[key]
@@ -514,14 +610,18 @@ end
 --   X|k|time|key|heroic|wipes|stars|by     X|b|time|who|text     X|e|cursor|count|more (the end of a batch)
 --   X|n|breakTime|who|breakKey|noteTime|note   (the GM's comment on a break: see "comments" below)
 local CATCHUP_DAYS, CATCHUP_MAX = 30, 60
+-- "|1" = this account never had the full list of deletes (fix 2026-11-22): a player still on an old RTH while the
+-- guild master deleted a break moved its catch-up past the delete without taking it - after updating it would
+-- never come. The first catch-up asks for ALL deletes (90 days); g.delSync is set at the end of that first page.
+local function wantAllDeletes() return RTH.db.group.delSync and "" or "|1" end
 function RTH.AskLog()
   if RTH.IAmRulesKeeper() then return end   -- the GM's log IS the record
-  RTH.Send("W", tostring(RTH.db.group.logSyncT or 0))
+  RTH.Send("W", tostring(RTH.db.group.logSyncT or 0) .. wantAllDeletes())
 end
 -- Sent in the order entries REACHED this log (rt), oldest first, CATCHUP_MAX at a time. The end message says where
 -- the batch stopped and whether there is more: the member asks again from there, so a new member a month into
 -- the challenge gets the whole 30 days, not just the newest 60. "since" and the cursor are both the GM's clock.
-handlers.W = function(sender, since)
+handlers.W = function(sender, since, allDeletes)
   if not RTH.IAmRulesKeeper() or not (RTH.InGroup(sender) or RTH.IsGuildMember(sender)) then return end
   local g, now = RTH.db.group, time()
   local from = math.max(int(since, 0) or 0, now - CATCHUP_DAYS * 86400)
@@ -545,10 +645,11 @@ handlers.W = function(sender, since)
         .. RTH.BreakKey(b.text) .. "|" .. b.noteT .. "|" .. (b.note or "") }
     end
   end
-  -- breaks deleted since then (2026-11-22): the member removes its copy (old versions ignore "d")
+  -- breaks deleted since then (2026-11-22): the member removes its copy (old versions ignore "d"). A member that
+  -- never had the full list ("1") gets every delete, put at the start of this first page.
   for _, d in ipairs(g.deleted or {}) do
-    if d.delT >= from then
-      list[#list + 1] = { rt = d.delT, note = true, msg = "d|" .. d.t .. "|" .. d.who .. "|" .. d.key .. "|" .. d.delT }
+    if d.delT >= from or allDeletes == "1" then
+      list[#list + 1] = { rt = math.max(d.delT, from), note = true, msg = "d|" .. d.t .. "|" .. d.who .. "|" .. d.key .. "|" .. d.delT }
     end
   end
   -- (same second: the break before its comment)
@@ -595,7 +696,7 @@ local function addEntry(sender, kind, t, ...)
     if type(who) ~= "string" or who == "" or text == "" then return nil end
     if RTH.IsBreakDeleted(who, text, t) then return nil end   -- the guild master deleted it
     for _, b in ipairs(g.breaks) do
-      if b.who == who and b.text == text and math.abs((b.t or 0) - t) < 600 then return nil end   -- already have it
+      if b.who == who and math.abs((b.t or 0) - t) < 600 and RTH.SameBreakText(b.text, text) then return nil end   -- already have it
     end
     insertByTime(g.breaks, { t = t, rt = time(), d = date("%Y-%m-%d %H:%M", t), who = who, text = text })
     return "b"
@@ -721,6 +822,23 @@ handlers.E = function(sender, t, who, key, delT)
   end
 end
 
+-- a kill's new star count (2026-11-22): "k|killTime|bossKey|stars", sent by the player whose RTH RECORDED the kill
+-- after a deleted break took one of its stars off. Our copy of their kill (synced: only a count) follows - only
+-- from that player, and only for a copy of a kill they recorded (k.by).
+handlers.k = function(sender, killT, key, n)
+  killT, n = int(killT, 1), int(n, 0, 99)
+  if not killT or not n or type(key) ~= "string" then return end
+  for _, k in ipairs(RTH.db.group.kills) do
+    if k.synced and k.key == key and k.by == sender and math.abs((k.t or 0) - killT) < 900 then
+      if k.starCount ~= n then
+        k.starCount = n
+        RTH.Fire("KILL")
+      end
+      return
+    end
+  end
+end
+
 local caught = { kills = 0, breaks = 0, notes = 0, pages = 0 }
 handlers.X = function(sender, kind, t, ...)
   if not RTH.IsRulesKeeper(sender) then return end   -- only the guild master's log is the record
@@ -736,6 +854,7 @@ handlers.X = function(sender, kind, t, ...)
     return
   end
   if kind == "e" then
+    g.delSync = true   -- the first page carried every delete: later pages (and catch-ups) only ask for new ones
     -- remember the GM's time (not ours: player clocks differ, and "since" is compared with the GM's entries)
     g.logSyncT = int(t, 0) or g.logSyncT
     local _, more = ...
@@ -1019,7 +1138,7 @@ function RTH.RelayPick()
   if peer then
     relayLog.peer, relayLog.pages = peer, 0
     relayLog.kills, relayLog.breaks, relayLog.notes = 0, 0, 0
-    RTH.SendQueued("w", "w", tostring(ask.window), peer)
+    RTH.SendQueued("w", "w", tostring(ask.window) .. wantAllDeletes(), peer)
   end
 end
 
@@ -1126,7 +1245,7 @@ handlers.s = function(sender, name, age, kind, ...)
 end
 
 -- A: C asks for the log since `window` seconds ago (oldest first, CATCHUP_MAX at a time, like the GM's W)
-handlers.w = function(sender, window)
+handlers.w = function(sender, window, allDeletes)
   if not RTH.IsGuildMember(sender) then return end
   window = int(window, 0, CATCHUP_DAYS * 86400)
   if not window then return end
@@ -1152,8 +1271,8 @@ handlers.w = function(sender, window)
   end
   -- the guild master's deletes, passed on (ages, like everything in the relay)
   for _, d in ipairs(g.deleted or {}) do
-    if d.delT >= from and d.by then
-      list[#list + 1] = { rt = d.delT, note = true, msg = "d|" .. math.max(0, now - d.t) .. "|" .. d.who .. "|" .. d.key
+    if (d.delT >= from or allDeletes == "1") and d.by then   -- "1": the asker never had the full list
+      list[#list + 1] = { rt = math.max(d.delT, from), note = true, msg = "d|" .. math.max(0, now - d.t) .. "|" .. d.who .. "|" .. d.key
         .. "|" .. math.max(0, now - d.delT) .. "|" .. d.by }
     end
   end
@@ -1183,6 +1302,7 @@ handlers.x = function(sender, kind, a, ...)
       return
     end
     RTH.db.group.logPeerT = now
+    RTH.db.group.delSync = true   -- that page carried every delete the peer had
     local k, b, n = relayLog.kills, relayLog.breaks, relayLog.notes
     if k + b + n > 0 then
       RTH.Print("caught up on the journey log from " .. sender .. ": " .. k .. " kill" .. (k == 1 and "" or "s") .. " and "

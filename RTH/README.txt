@@ -42,8 +42,12 @@ PHASES - EACH CHARACTER OPENS ITS OWN
   character's gate by hand: /rth gate Name N (outside a raid). It's written into the Journey Log.
 
 RED MARKS
-A red mark on an item (bags, bank, merchant, auction house, mail, trade...) means you may not use or buy it
-in your phase. Hover the item: the tooltip says why and when it opens up.
+A red mark on an item (bags, bank, merchant, auction house, mail, trade, loot and Need/Greed rolls...) means you
+may not use or buy it in your phase. Hover the item: the tooltip says why and when it opens up. Red marks work
+in Blizzard's bags, Bagnon, ElvUI, AdiBags, ArkInventory and any bag addon built on Blizzard's bag buttons.
+The light in the window header: green = all your gear is fine, yellow = check, red = not allowed. Hover it for
+the slot, the item, why and what to do - click it for the same list in chat.
+The rules in plain words: Rules tab > "How the rules work", or /rth rules.
 Food, flasks, potions, glyphs, gems and enchants that only a profession can make are only allowed when
 someone in the group knows the recipe (nobody has to gather the materials). Things you can buy from a vendor
 or that drop are fine.
@@ -57,9 +61,14 @@ itself at level 77 or higher. Taking one from the mail (sent by another characte
 Recipes open with the patch that added them - except low-level ones (below skill 350) and recipes for
 leveling gear: those are fine from the start (e.g. Spidersilk Drape, Pumpkin Pie).
 Gold: sending or getting gold with guild members (mail, COD, trade) and the guild bank is fine.
-Gold from or to anyone outside the guild is a rule break.
-Trading with someone outside the guild: the window opens, but the Trade button is greyed out ("Blocked"),
-because they almost always want a tip and any gold with them is a rule break. A popup explains it.
+Gold from or to anyone outside the guild is a rule break - so RTH stops it before it happens:
+- Mail: the Send button is greyed out ("Blocked") while a mail to someone outside the guild has gold or COD on
+  it (items are fine); taking gold from their mail or paying their COD is stopped too - send it back instead.
+- Trading with someone outside the guild: the window opens, but the Trade button is greyed out ("Blocked"),
+  because they almost always want a tip. A popup explains it.
+In a trade with a guild member, the Trade button is greyed out while their side holds an item you're not allowed
+to have (red mark) - ask them to take it out. A vendor item with a red mark asks "Buy it anyway?" first.
+A raid set to 25 players shows a warning before anyone zones in (10-man only).
 Auction House: selling is always fine. Buying, if it's open in your phase (25-man loot never):
 - fine: gear that drops (BoE), raw materials (ore, herbs, cloth, uncut gems...), recipes, pets, mounts,
   and food, drinks and reagents a vendor sells for gold
@@ -70,6 +79,14 @@ Holiday items (Brewfest, Hallow's End, Love is in the Air, Pilgrim's Bounty...):
 crafted ones without a crafter in the group - but only from the phase their patch came out (e.g. the 3.3
 Love is in the Air perfumes from phase 4, Pilgrim's Bounty food from phase 3). Before that: red mark.
 Bid and Buyout are greyed out ("Blocked") for items you may not buy; hover for why.
+Mail, vendor and AH addons: all of this works with ElvUI's look too. Also covered:
+- Postal: "Open All" and "Open" are greyed out ("Blocked") while a mail from someone outside the guild has gold in
+  it - send that mail back first (open it, Return, or Postal's Return), then they work again.
+- ElvUI Enhanced "Take All" / "Take Cash": takes everything else and skips that mail (it says so in chat).
+- Alt-click (ElvUI Enhanced) and the stack window (ElvUI Extras) don't buy a red-marked vendor item - right-click
+  it to buy one (RTH asks first). ElvUI Extras' automatic buying can't be checked: the red mark still shows.
+- Auctionator: its Buy button is greyed out for an item you may not buy, and the buy itself is stopped.
+/rth status lists which of these RTH found.
 
 GOOD TO KNOW
 - The first time you log in on a character, RTH asks if it's doing the challenge. Say No on alts:
@@ -118,6 +135,7 @@ COMMANDS
 
 PROBLEMS?
 - "/rth status" says the recipe data isn't loaded: close WoW completely and start it again (/reload is not enough).
-- Everything needs an English game client for raid lockouts, 25-man detection and Herbalism.
+- Any game language works. If your game isn't English and a raid, dungeon or your Herbalism isn't recognised,
+  tell the guild master (/rth status shows your game language).
 - Your version is shown top-left in the RTH window. Under it, a red "N outdated" means guild members run an
   older copy (hover it for the names); "update RTH!" means someone has a newer one - ask the guild master for it.

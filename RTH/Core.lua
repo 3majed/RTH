@@ -32,6 +32,77 @@ RTH.RAIDS = {
   ["Icecrown Citadel"] = 4, ["The Ruby Sanctum"] = 5, ["Vault of Archavon"] = 1,
 }
 
+-- ---------------------------------------------------------------- instances on any game language (2026-11-22)
+-- The game hands out instance names in the client's language (GetInstanceInfo, raid lockouts, the Dungeon Finder),
+-- and 3.3.5 has no instance ID in those APIs. RTH's own names are English. So every instance also carries its
+-- language-free map ID (Map.dbc) and its Dungeon Finder IDs (LFGDungeons.dbc, checked in the 3.3.5 data):
+-- GetLFGDungeonInfo(id) gives the name in the player's language, and those names point back to the map ID.
+-- (Even in English the two differ: "The Ruby Sanctum" is "Ruby Sanctum" in the Dungeon Finder - so a name that
+-- contains the other counts too.)
+RTH.RAID_MAPS = {
+  [533] = "Naxxramas", [615] = "The Obsidian Sanctum", [616] = "The Eye of Eternity", [603] = "Ulduar",
+  [649] = "Trial of the Crusader", [249] = "Onyxia's Lair", [631] = "Icecrown Citadel", [724] = "The Ruby Sanctum",
+  [624] = "Vault of Archavon",
+}
+RTH.VOA_MAP = 624
+RTH.INSTANCE_LFG = {   -- map ID -> its Dungeon Finder IDs (normal, heroic; raids 10 / 25)
+  [574] = { 202, 242 }, [575] = { 203, 205 }, [576] = { 225, 226 }, [578] = { 206, 211 }, [595] = { 209, 210 },
+  [599] = { 208, 213 }, [600] = { 214, 215 }, [601] = { 204, 241 }, [602] = { 207, 212 }, [604] = { 216, 217 },
+  [608] = { 220, 221 }, [619] = { 218, 219 }, [632] = { 251, 252 }, [650] = { 245, 249 }, [658] = { 253, 254 },
+  [668] = { 255, 256 },
+  [533] = { 159, 227 }, [615] = { 224, 238 }, [616] = { 223, 237 }, [603] = { 243, 244 }, [649] = { 246, 247, 248, 250 },
+  [249] = { 46, 257 }, [631] = { 279, 280 }, [724] = { 293, 294 }, [624] = { 239, 240 },
+}
+RTH.LFG_TO_MAP = {}
+for mapID, ids in pairs(RTH.INSTANCE_LFG) do for _, id in ipairs(ids) do RTH.LFG_TO_MAP[id] = mapID end end
+local nameIndex   -- lower-case name -> map ID (English + the client's own language), built on first use
+local function normName(s) return (tostring(s or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")) end
+local function buildNameIndex()
+  nameIndex = {}
+  for mapID, name in pairs(RTH.RAID_MAPS) do nameIndex[normName(name)] = mapID end
+  for mapID, d in pairs(RTH_Dungeons or {}) do nameIndex[normName(d.name)] = mapID end
+  if GetLFGDungeonInfo then
+    for mapID, ids in pairs(RTH.INSTANCE_LFG) do
+      for _, id in ipairs(ids) do
+        local n = GetLFGDungeonInfo(id)
+        if type(n) == "string" and n ~= "" then nameIndex[normName(n)] = mapID end
+      end
+    end
+  end
+end
+function RTH.ResetInstanceNames() nameIndex = nil end   -- (on PLAYER_ENTERING_WORLD, below: the game's data is in)
+-- the map ID of an instance name in any language (nil = not one RTH knows)
+function RTH.InstanceMap(name)
+  if type(name) ~= "string" or name == "" then return nil end
+  if not nameIndex then buildNameIndex() end
+  local n = normName(name)
+  if nameIndex[n] then return nameIndex[n] end
+  local best, bestLen
+  for k, mapID in pairs(nameIndex) do
+    if #k >= 5 and #n >= 5 and (n:find(k, 1, true) or k:find(n, 1, true)) and (not bestLen or #k > bestLen) then
+      best, bestLen = mapID, #k
+    end
+  end
+  return best
+end
+-- a raid's phase by its name in any language -> phase, map ID, RTH's English name
+function RTH.RaidByName(name)
+  local mapID = RTH.InstanceMap(name)
+  local en = mapID and RTH.RAID_MAPS[mapID]
+  return en and RTH.RAIDS[en], mapID, en
+end
+-- an English raid name in the player's language (the Dungeon Finder's), for text shown to them
+function RTH.RaidDisplayName(en)
+  for mapID, name in pairs(RTH.RAID_MAPS) do
+    if name == en then
+      local id = RTH.INSTANCE_LFG[mapID] and RTH.INSTANCE_LFG[mapID][1]
+      local n = id and GetLFGDungeonInfo and GetLFGDungeonInfo(id)
+      if type(n) == "string" and n ~= "" and GetLocale and GetLocale():sub(1, 2) ~= "en" then return n end
+    end
+  end
+  return en
+end
+
 local function print_(msg) DEFAULT_CHAT_FRAME:AddMessage("|cffd9a441Road to Halion:|r " .. tostring(msg)) end
 RTH.Print = print_
 
@@ -233,7 +304,12 @@ local function initDB()
   if type(g.logSyncT) ~= "number" then g.logSyncT = nil end   -- last journey log catch-up from the GM (GM's clock)
   if type(g.keeperSeenT) ~= "number" then g.keeperSeenT = nil end   -- the GM's RTH: when it last ran (Sync.lua)
   if type(g.logPeerT) ~= "number" then g.logPeerT = nil end   -- last journey log catch-up from a member (relay, our clock)
+  if g.delSync ~= true then g.delSync = nil end   -- had the full list of the guild master's deletes (Sync.lua AskLog)
   g.gateSynced = map(g.gateSynced, "number", "boolean")   -- phase -> we have the guild master's gate (Sync.lua)
+  -- 2026-11-22: a member's copy of the guild master's rules (Sync.lua "u"), until the guild master's own arrive
+  g.gateRelayed = map(g.gateRelayed, "number", "string")   -- phase -> who passed the copy on
+  if g.rosterSynced ~= true then g.rosterSynced = nil end   -- we have the guild master's own core list
+  if type(g.rosterRelayed) ~= "string" then g.rosterRelayed = nil end
   local members = {}
   for name, m in pairs(tbl(g.members)) do
     if type(name) == "string" and type(m) == "table" then
@@ -349,6 +425,7 @@ function RTH.SetInChallenge(on)
   if was and not on and RTH.Send then RTH.Send("O") end
   RTH.char.inChallenge = on and true or false
   RTH.Fire("OVERLAYS_TOGGLED"); RTH.Fire("PHASE_CHANGED", RTH.GetPhase())
+  RTH.Fire("CHALLENGE_TOGGLED")   -- Rules.lua: greyed-out buttons follow at once (a "No" character is never blocked)
   if on and not was and RTH.SayHello then RTH.SayHello() end   -- the group sees this character right away
 end
 local function askInChallenge()
@@ -612,12 +689,12 @@ function RTH.InstanceState()
   if itype == "raid" then
     s.is25 = (diff == 2 or diff == 4)
     s.heroic = (diff == 3 or diff == 4) or (isDynamic and dynDiff == 1) or false
-    s.phase = RTH.RAIDS[name]
+    s.phase, s.map = RTH.RaidByName(name)   -- any game language (2026-11-22)
   elseif itype == "party" then
     s.heroic = (diff == 2)
-    for mapID, d in pairs(RTH_Dungeons) do
-      if d.name == name then s.dungeon = mapID; s.phase = d.phase end
-    end
+    local map = RTH.InstanceMap(name)
+    local d = map and RTH_Dungeons[map]
+    if d then s.dungeon = map; s.phase = d.phase end
   end
   return s
 end
@@ -631,7 +708,7 @@ function RTH.AddBreak(who, text, fromSync)
   local now = time()
   for i = #g.breaks, math.max(1, #g.breaks - 30), -1 do
     local b = g.breaks[i]
-    if b.who == who and b.text == text and now - b.t < 600 then return end
+    if b.who == who and now - b.t < 600 and (b.text == text or (RTH.SameBreakText and RTH.SameBreakText(b.text, text))) then return end
   end
   table.insert(g.breaks, { t = now, rt = now, d = date("%Y-%m-%d %H:%M"), who = who, text = text })   -- rt: when it reached THIS log
   print_("|cffff4040rule break|r - " .. who .. ": " .. text)
@@ -756,12 +833,17 @@ function RTH.ForgetBreakStars(who, key, t)
   for _, k in ipairs(RTH.db.group.kills) do
     -- a kill after the break (it put the star there), within a day; an hour of slack for clocks
     if type(k.stars) == "table" and k.by == me and not k.synced and k.t >= t - 3600 and k.t <= t + 86400 then
+      local before = removed
       for i = #k.stars, 1, -1 do
         local s = k.stars[i]
         if type(s) == "string" and s:sub(1, #prefix) == prefix and RTH.BreakKey(s:sub(#prefix + 1)) == key then
           table.remove(k.stars, i)
           removed = removed + 1
         end
+      end
+      -- everyone else only has a star COUNT for this kill: tell them the new one (Sync.lua "k", recorder only)
+      if removed > before and RTH.Send and type(k.key) == "string" then
+        RTH.Send("k", k.t .. "|" .. k.key .. "|" .. #k.stars)
       end
     end
   end
@@ -1178,6 +1260,7 @@ RTH.On("UNIT_INVENTORY_CHANGED", function(unit) if unit == "player" then RTH.Aft
 RTH.Listen("LOGIN", function() RTH.After("wornMax", 7, noteWorn) end)
 
 -- ---------------------------------------------------------------- start up
+RTH.On("PLAYER_ENTERING_WORLD", RTH.ResetInstanceNames)   -- instance names in the client's language (top of file)
 RTH.On("ADDON_LOADED", function(name)
   if name ~= "RTH" then return end
   initDB()
@@ -1196,10 +1279,11 @@ RTH.On("PLAYER_GUILD_UPDATE", function()
 end)
 RTH.On("PLAYER_LOGIN", function() wasInGuild = IsInGuild() and true or false end)
 
--- RTH compares raid names and the Herbalism skill with their English names (3.3.5 has no language-free IDs
--- for these). On other game languages those parts can't work - say so instead of failing silently.
+-- Since 2026-11-22 raids, dungeons, raid lockouts and Herbalism are read on any game language (instance map IDs +
+-- the Dungeon Finder's names, see the top of this file; Professions.lua for Herbalism). Not tested on a real
+-- non-English client yet, so the note only asks to report anything RTH doesn't recognise.
 local function englishClient() local l = GetLocale(); return l == "enUS" or l == "enGB" end
-local LOCALE_NOTE = "your game is not in English: 25-man raid detection, raid lockouts and Herbalism can't be read. Everything else works."
+local LOCALE_NOTE = "not English - supported; if a raid, dungeon or Herbalism isn't recognised, tell the guild master."
 
 RTH.On("PLAYER_LOGIN", function()
   if RTH.freshStart then
@@ -1207,7 +1291,6 @@ RTH.On("PLAYER_LOGIN", function()
     RTH.Print("|cff40ff40version " .. RTH.VERSION .. ": fresh start|r - the test version's journey log, phase and rules were"
       .. " cleared. Your professions and settings are kept. The guild master's rules arrive when you're both online.")
   end
-  if not englishClient() then RTH.Print("|cffffd040" .. LOCALE_NOTE .. "|r") end
   if RTH.needsRestart then
     RTH.Print("|cffff8040new data files were added - close WoW completely and start it again (/reload is not enough). "
       .. "Until then recipe marks, recipe tooltips, profession cooldowns and the craft rule are off.|r")
@@ -1238,6 +1321,8 @@ SlashCmdList["ROADTOHALION"] = function(msg)
     local name, n = arg:match("^(%S+)%s+(%d+)$")
     if not name then print_("usage: /rth gate Name 1   (guild master: mark Name's gates up to that phase as finished)"); return end
     RTH.GrantGate(name, tonumber(n))
+  elseif cmd == "rules" then
+    if RTH.ShowRules then RTH.ShowRules() end
   elseif cmd == "status" then
     -- quick self-check: is everything loaded and switched on?
     local n = 0
@@ -1255,11 +1340,29 @@ SlashCmdList["ROADTOHALION"] = function(msg)
     end
     table.sort(addons)
     print_("red marks added to: Blizzard bags" .. (addons[1] and (", " .. table.concat(addons, ", ")) or "")
-      .. "  (other bag addons are not supported yet)")
+      .. " + any bag addon that uses Blizzard's bag buttons (if yours shows no red marks, tell the guild master its name)")
+    -- mail / vendor / AH addons whose own buttons RTH also stops (Rules.lua; some only after opening the window once)
+    local gi, guards = RTH.AddonGuardsInstalled or {}, {}
+    local GUARD_NAMES = { postal = "Postal Open All", tam = "ElvUI Take All", altBuy = "ElvUI alt-click buy",
+      split = "ElvUI Extras stack buy", atr = "Auctionator Buy" }
+    for k, label in pairs(GUARD_NAMES) do if gi[k] then guards[#guards + 1] = label end end
+    table.sort(guards)
+    print_("gold and buying stops also cover: " .. (guards[1] and table.concat(guards, ", ") or "Blizzard's windows only")
+      .. "  (mail, vendor and AH addons are found when you open their window)")
     print_("recipe data loaded: " .. (n > 0 and (yes .. " (" .. n .. " recipes)")
       or (no .. " - close WoW completely and start it again (/reload is not enough)")))
     print_("you can change the rules (guild master): " .. (RTH.IAmRulesKeeper() and yes or no))
-    print_("game language: " .. (englishClient() and (yes .. " English") or (no .. " - " .. LOCALE_NOTE)))
+    -- where this account's gates / core list came from (Sync.lua G / N and the "u" copy)
+    local g, fromGM, copyBy = RTH.db.group, true, nil
+    for p = 1, RTH.MAX_PHASE do
+      if not g.gateSynced[p] then fromGM = false end
+      copyBy = copyBy or (g.gateRelayed and g.gateRelayed[p])
+    end
+    print_("rules (gates, core list): " .. (RTH.IAmRulesKeeper() and (yes .. " your own")
+      or fromGM and (yes .. " from the guild master")
+      or copyBy and ("|cffffd040a copy from " .. copyBy .. "|r (until the guild master is online)")
+      or (no .. " - the default gates: the guild master hasn't been online since you installed RTH")))
+    print_("game language: " .. (englishClient() and (yes .. " English") or ("|cffffd040" .. tostring(GetLocale()) .. "|r " .. LOCALE_NOTE)))
   elseif cmd == "check" then
     if RTH.RequestStatus then RTH.RequestStatus() end
     print_("asked the group for their status")
@@ -1319,6 +1422,7 @@ SlashCmdList["ROADTOHALION"] = function(msg)
   else
     print_("commands:")
     print_("  /rth  -  open or close the window")
+    print_("  /rth rules  -  how the rules work, in plain words (also a button on the Rules tab)")
     print_("  /rth status  -  check that everything is loaded and switched on")
     print_("  /rth check  -  ask the group for their gear status")
     print_("  /rth sync  -  who RTH has heard from (if the group's data doesn't show up)")

@@ -215,3 +215,56 @@ function RTH.ShowCopyBox(text)
   copy.edit:SetFocus()
   copy.edit:HighlightText()
 end
+
+-- ---------------------------------------------------------------- the rules window (2026-11-22)
+-- "How the rules work" (Rules tab): RTH.RulesText() in plain words, read-only and scrollable; it is built again
+-- every time it opens, so your phase and the open raids are always the current ones. Escape closes it.
+local rulesBox
+function RTH.ShowRules()
+  if not rulesBox then
+    local w, h = 520, 420
+    rulesBox = CreateFrame("Frame", "RTHRulesBox", UIParent)
+    rulesBox:SetWidth(w); rulesBox:SetHeight(h)
+    rulesBox:SetPoint("CENTER")
+    rulesBox:SetFrameStrata("DIALOG")
+    rulesBox:SetToplevel(true)
+    rulesBox:SetClampedToScreen(true)
+    rulesBox:EnableMouse(true)
+    rulesBox:SetMovable(true)
+    rulesBox:RegisterForDrag("LeftButton")
+    rulesBox:SetScript("OnDragStart", rulesBox.StartMoving)
+    rulesBox:SetScript("OnDragStop", rulesBox.StopMovingOrSizing)
+    UI.NineSlice(rulesBox, "window_border")
+    local inset = UI.FRAME_INSET
+    UI.Section(rulesBox, inset - 4, -12, -(inset - 4), nil, 26, { band = 26 })
+    local t = UI.Text(rulesBox, nil, UI.GOLD)
+    t:SetPoint("LEFT", rulesBox, "TOPLEFT", inset + 2, -25)
+    t:SetText(UI.TitleIcon("Rules") .. "HOW THE RULES WORK")
+    local close = CreateFrame("Button", nil, rulesBox, "UIPanelCloseButton")
+    close:SetWidth(20); close:SetHeight(20)
+    close:SetPoint("CENTER", rulesBox, "TOPRIGHT", -(inset + 8), -25)
+    close:SetNormalTexture(RTH.TEX .. "close")
+    close:SetPushedTexture(RTH.TEX .. "close_hover")
+    close:SetHighlightTexture(RTH.TEX .. "close_hover", "BLEND")
+    UI.Section(rulesBox, inset - 4, -42, -(inset - 4), 12)
+    local sf = UI.StyleScroll(CreateFrame("ScrollFrame", "RTHRulesScroll", rulesBox, "UIPanelScrollFrameTemplate"))
+    sf:SetPoint("TOPLEFT", rulesBox, "TOPLEFT", inset + 4, -48)
+    sf:SetPoint("BOTTOMRIGHT", rulesBox, "BOTTOMRIGHT", -(inset + 24), 18)
+    local child = CreateFrame("Frame", nil, sf)
+    local textW = w - 2 * inset - 34
+    child:SetWidth(textW); child:SetHeight(10)
+    rulesBox.text = UI.Text(child, nil, { 0.92, 0.92, 0.92 }, "LEFT")
+    rulesBox.text:SetPoint("TOPLEFT", child, "TOPLEFT", 0, 0)
+    rulesBox.text:SetWidth(textW)
+    rulesBox.text:SetJustifyV("TOP")
+    rulesBox.child = child
+    sf:SetScrollChild(child)
+    rulesBox.scroll = sf
+    table.insert(UISpecialFrames, "RTHRulesBox")
+  end
+  rulesBox:Show()   -- (shown first: the text's wrapped height is read right after)
+  rulesBox.text:SetText(RTH.RulesText())
+  rulesBox.child:SetHeight(math.max(10, (rulesBox.text:GetHeight() or 10) + 8))
+  rulesBox.scroll:SetVerticalScroll(0)
+  rulesBox:Show()
+end

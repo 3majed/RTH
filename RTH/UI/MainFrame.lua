@@ -214,13 +214,34 @@ local function build()
   main.lightText:SetPoint("LEFT", main.light, "RIGHT", 3, 0)
   local lightTip = CreateFrame("Frame", nil, main)
   lightTip:SetAllPoints(main.light)
+  lightTip:EnableMouse(true)   -- (without it a plain frame gets no hover or click in the game - fixed 2026-11-22)
+  main.lightTip = lightTip
+  -- "why?": slot, item, reason and what to do, per item (user request 2026-11-22)
   UI.Tip(lightTip, function(tt)
     tt:AddLine("Your gear right now")
     local problems, checks = RTH.CheckEquipped()
-    for _, p in ipairs(problems) do tt:AddLine((p.link or "") .. ": " .. p.reason, 1, 0.3, 0.3, true) end
-    for _, c in ipairs(checks) do tt:AddLine((c.link or "") .. ": " .. c.reason, 1, 0.82, 0.2, true) end
+    for _, p in ipairs(problems) do
+      tt:AddLine(RTH.SlotName(p.slot) .. ": " .. (p.link or "") .. " - " .. p.reason, 1, 0.3, 0.3, true)
+      tt:AddLine("   " .. RTH.GearHint(p.reason), 0.85, 0.85, 0.85, true)
+    end
+    for _, c in ipairs(checks) do
+      tt:AddLine(RTH.SlotName(c.slot) .. ": " .. (c.link or "") .. " - " .. c.reason, 1, 0.82, 0.2, true)
+      tt:AddLine("   " .. RTH.GearHint(c.reason), 0.85, 0.85, 0.85, true)
+    end
     if not problems[1] and not checks[1] then tt:AddLine("Everything you wear is allowed.", 0.3, 0.9, 0.4) end
     if not RTH.GearCounts("player") then tt:AddLine("Leveling: gear rules start at level " .. RTH.GEAR_LEVEL .. ".", 0.7, 0.7, 0.7) end
+    if problems[1] or checks[1] then tt:AddLine("Click: the same list in chat", 0.5, 0.8, 1) end
+  end)
+  lightTip:SetScript("OnMouseUp", function()
+    local problems, checks = RTH.CheckEquipped()
+    if not problems[1] and not checks[1] then RTH.Print("|cff40ff40everything you wear is allowed|r"); return end
+    RTH.Print("your gear - " .. #problems .. " not allowed, " .. #checks .. " to check:")
+    for _, p in ipairs(problems) do
+      RTH.Print("  |cffff4040" .. RTH.SlotName(p.slot) .. "|r " .. (p.link or "") .. " - " .. p.reason .. " |cffb8b8b8(" .. RTH.GearHint(p.reason) .. ")|r")
+    end
+    for _, c in ipairs(checks) do
+      RTH.Print("  |cffffd040" .. RTH.SlotName(c.slot) .. "|r " .. (c.link or "") .. " - " .. c.reason .. " |cffb8b8b8(" .. RTH.GearHint(c.reason) .. ")|r")
+    end
   end)
   -- this copy's version (left end of the bar, across from the light) and who runs another one
   main.ver = UI.Text(main, "small", { 0.72, 0.72, 0.72 }, "LEFT")

@@ -135,6 +135,36 @@ RTH.Hook("LootFrame_Update", function()
   end
 end)
 
+-- Any bag addon built on Blizzard's bag buttons (user request 2026-11-22 - Glorify's bags showed no marks): those
+-- buttons have "<name>IconQuestTexture" (ContainerFrameItemButtonTemplate / the bank's) and their bag is the
+-- parent's ID - Blizzard's own click code depends on that, so it's reliable. They all draw the icon through
+-- SetItemButtonTexture, so that's where the mark goes. The addon-specific hooks below still run (same verdict).
+-- The bank's own slots sit on BankFrame (bag -1); the bank's bag-slot buttons (isBag) are no items.
+RTH.Hook("SetItemButtonTexture", function(button, texture)
+  if type(button) ~= "table" or not button.GetName or button.isBag then return end
+  local name = button:GetName()
+  if not name or not _G[name .. "IconQuestTexture"] then return end
+  local parent = button:GetParent()
+  local bag = parent and parent.GetID and parent:GetID()
+  if parent and parent == _G.BankFrame then bag = BANK_CONTAINER or -1 end
+  local slot = button:GetID()
+  if not bag or not slot or slot < 1 then return end
+  RTH.MarkItem(button, texture and GetContainerItemLink(bag, slot) or nil, "bag")
+end)
+
+-- group loot rolls (Need / Greed windows): the item's red mark, so nobody wins what they may not use (user request
+-- 2026-11-22). Their OnShow is bound in XML (function="GroupLootFrame_OnShow"): a hook on the global would never
+-- run, so each window's own script is hooked. The hover line comes from the tooltip as everywhere.
+for i = 1, (NUM_GROUP_LOOT_FRAMES or 4) do
+  local f = _G["GroupLootFrame" .. i]
+  local icon = _G["GroupLootFrame" .. i .. "IconFrame"]
+  if f and icon then
+    RTH.HookScript(f, "OnShow", function(self)
+      RTH.MarkItem(icon, self.rollID and GetLootRollItemLink(self.rollID) or nil, "bag")
+    end)
+  end
+end
+
 RTH.Hook("MerchantFrame_UpdateMerchantInfo", function()
   for i = 1, MERCHANT_ITEMS_PER_PAGE do
     local index = (MerchantFrame.page - 1) * MERCHANT_ITEMS_PER_PAGE + i
@@ -286,6 +316,16 @@ lod.ElvUI = function()
       local lf = _G.ElvLootFrame
       for i, slot in pairs(lf and lf.slots or {}) do
         if slot.iconFrame then RTH.MarkItem(slot.iconFrame, slot:IsShown() and GetLootSlotLink(i) or nil, "bag") end
+      end
+    end)
+  end
+  -- ElvUI's own Need / Greed bars (M.RollBars; START_LOOT_ROLL fills one with rollID + itemButton) - 2026-11-22
+  if M and M.START_LOOT_ROLL then
+    RTH.Hook(M, "START_LOOT_ROLL", function(_, _, rollID)
+      for _, bar in ipairs(M.RollBars or {}) do
+        if bar.rollID == rollID and bar.itemButton then
+          RTH.MarkItem(bar.itemButton, GetLootRollItemLink(rollID), "bag")
+        end
       end
     end)
   end

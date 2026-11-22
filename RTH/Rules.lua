@@ -34,6 +34,30 @@ do
     addTo(RTH_CraftedBy and RTH_CraftedBy[id], spells)
     addTo(RTH_EnchantItemBy and RTH_EnchantItemBy[id], spells)
   end
+  -- enchanting scrolls (fix 2026-11-22): made by casting the enchant on a vellum, so no recipe "creates" them and the
+  -- AH sold them as "everything else" with no enchanter needed. RTH_ScrollBy (Data/Extra.lua): scroll -> its recipe.
+  if RTH_EnchantItemBy then
+    for id, spell in pairs(RTH_ScrollBy or {}) do
+      if RTH_EnchantItemBy[id] then addTo(RTH_EnchantItemBy[id], { spell }) else RTH_EnchantItemBy[id] = { spell } end
+    end
+  end
+  -- crafted-only items the first data build missed (audit 2026-11-22: TBC JC rings, leveling tailoring gear, ammo from
+  -- the Engineering ammo makers, Box of Bombs, Swords cards...) - the AH sold them as "a drop" / "material"
+  if RTH_CraftedOnly then
+    for id, spells in pairs(RTH_CraftedOnlyFix or {}) do
+      if RTH_CraftedOnly[id] then addTo(RTH_CraftedOnly[id], spells) else RTH_CraftedOnly[id] = spells end
+    end
+  end
+  -- use list fix (audit 2026-11-22): crafted-only bandages and 3 TBC foods were never checked when used (the AH already
+  -- wanted a crafter for them). RTH_UseFix: same shape as RTH_UseItems + "unique" (no other item casts the spell).
+  if RTH_UseItems then
+    for id, u in pairs(RTH_UseFix or {}) do
+      if not RTH_UseItems[id] then
+        RTH_UseItems[id] = { u[1], u[2], u[3], u[4] }
+        if u[5] == 1 and RTH_UseSpell and u[3] and u[3] > 0 and not RTH_UseSpell[u[3]] then RTH_UseSpell[u[3]] = { id } end
+      end
+    end
+  end
   -- ItemVersion fixes (2026-11-22): items / recipes that came out in a LATER patch than RTH's own data said (epic
   -- gems and Crusader Orbs 3.2, Primordial Saronite 3.3, new glyphs, 3.3.3 Ahune cloaks...). Raised here, once, in
   -- every table that carries a phase, so every check (bags, AH, use, wearing, 'who can make it') waits for it.
@@ -485,6 +509,78 @@ function RTH.CheckGear(unit, who)
 end
 function RTH.CheckEquipped() return RTH.CheckGear("player") end
 
+-- ---------------------------------------------------------------- the rules, in plain words (in the game)
+-- (user request 2026-11-22) The Rules tab's "How the rules work" window. The same rules as README.txt, short; your
+-- phase, the raids open to you and what the next phase brings are filled in live, so it's never out of date.
+function RTH.RulesText()
+  local H = function(s) return "|cffd9a441" .. s .. "|r\n" end
+  local p = RTH.MyPhase and RTH.MyPhase() or 1
+  local raids, nextRaids = {}, {}
+  for name, rp in pairs(RTH.RAIDS or {}) do
+    local shown = RTH.RaidDisplayName and RTH.RaidDisplayName(name) or name   -- the player's game language
+    if rp <= p then raids[#raids + 1] = shown elseif rp == p + 1 then nextRaids[#nextRaids + 1] = shown end
+  end
+  table.sort(raids); table.sort(nextRaids)
+  local t = {}
+  local function add(s) t[#t + 1] = s end
+  add(H("YOUR PHASE"))
+  add("You are in |cffffd040" .. RTH.PhaseLabel(p) .. "|r - patch " .. (RTH.PHASE_PATCH[p] or "?") .. ". Everything from that patch "
+    .. "and older is open for you.\n")
+  add("Raids you may enter (10-man only): " .. table.concat(raids, ", ") .. ".\n")
+  if p < RTH.MAX_PHASE then
+    add("Next: " .. RTH.PhaseLabel(p + 1) .. (nextRaids[1] and (" - " .. table.concat(nextRaids, ", ")) or "")
+      .. ". It opens for you when you finish its unlock gate (Progress tab), in clean guild runs.\n")
+  end
+  add("\n" .. H("A CLEAN RUN"))
+  add("- 10-man only. Entering a 25-man raid is a rule break (RTH warns when a raid is set to 25).\n")
+  add("- Only the group: guild members. No outsiders in the raid.\n")
+  add("- A rule break or a gear problem in the raid that night puts a mark on the kills - marked kills don't count for the gate.\n")
+  add("\n" .. H("GEAR (from level 80)"))
+  add("- Wear only gear from your phase or older. Never 25-man loot.\n")
+  add("- Heirlooms are fine while leveling - take them off at 80 before a boss.\n")
+  add("- Enchants and gems on your gear: someone in your group must be able to make them.\n")
+  add("- Your light: green = all fine, yellow = check, red = not allowed. Hover or click it to see why.\n")
+  add("\n" .. H("PROFESSIONS"))
+  add("- Food, flasks, potions, glyphs and anything only a profession makes: only if someone in your group knows the recipe.\n")
+  add("- Recipes open with their patch (low-level and leveling recipes are open from the start).\n")
+  add("\n" .. H("GOLD AND TRADING"))
+  add("- Gold with guild members is fine: mail, COD, trade, guild bank.\n")
+  add("- Gold with anyone outside the guild is a rule break. RTH stops it: the Send and Trade buttons say \"Blocked\".\n")
+  add("- Trading with someone outside the guild is turned off.\n")
+  add("\n" .. H("AUCTION HOUSE"))
+  add("- Selling: always fine.\n")
+  add("- Buying, if it's open in your phase: gear that drops, materials, recipes, pets, mounts, vendor food and reagents, "
+    .. "holiday items, and everything else from your patch.\n")
+  add("- Things only a profession makes: only if someone in your group can make them.\n")
+  add("- Bid and Buyout are greyed out for what you may not buy. Hover them to see why.\n")
+  add("\n" .. H("GOOD TO KNOW"))
+  add("- A red mark on an item means not allowed (yet) - hover it to see why and when it opens.\n")
+  add("- Each character buys its own Tome of Cold Weather Flight, at level 77 or higher.\n")
+  add("- Reputation enchants (arcanums, shoulder inscriptions) need the wearer's own reputation.\n")
+  add("- A rule break that's wrong? Tell the guild master - only they can delete it.\n")
+  return table.concat(t)
+end
+
+-- "why is my light red / yellow?" (user request 2026-11-22): one line per item - slot, item, reason, what to do.
+-- Used by the light's tooltip and its click (the same list in chat, with clickable item links).
+local SLOT_NAMES = { "HEADSLOT", "NECKSLOT", "SHOULDERSLOT", "SHIRTSLOT", "CHESTSLOT", "WAISTSLOT", "LEGSSLOT",
+  "FEETSLOT", "WRISTSLOT", "HANDSSLOT", "FINGER0SLOT", "FINGER1SLOT", "TRINKET0SLOT", "TRINKET1SLOT", "BACKSLOT",
+  "MAINHANDSLOT", "SECONDARYHANDSLOT", "RANGEDSLOT", "TABARDSLOT" }
+function RTH.SlotName(slot)
+  local key = SLOT_NAMES[slot]
+  return (key and _G[key]) or ("slot " .. tostring(slot))
+end
+function RTH.GearHint(reason)
+  reason = tostring(reason or "")
+  if reason:find("25%-man") then return "never allowed - take it off" end
+  if reason:find("heirloom") then return "take it off before a boss" end
+  if reason:find("until Phase") or reason:find("catching up") then return "opens later - take it off for now" end
+  if reason:find("nobody in the group can make") then return "a crafter in the group fixes it - or take it off" end
+  if reason:find("enchant") or reason:find("gem") then return "replace it with one your group can make" end
+  if reason:find("check manually") or reason:find("unsure") then return "ask the guild master" end
+  return "take it off"
+end
+
 -- heirlooms you're wearing at level 80 (links): a boss kill with one on is a rule break (Progress.lua), entering a
 -- dungeon or raid with one on gets a warning (Progress.lua checkInstance)
 function RTH.WornHeirlooms()
@@ -504,8 +600,8 @@ end
 --      bars / bolts / inks / bags... RTH_CraftedOnly): only when someone in the group can make it (no gatherer
 --      needed - GM 2026-11-19);
 --   2. gear nobody crafts (BoEs that drop from mobs): yes, when it's open in this phase (never 25-man loot);
---   3. raw materials (the AH's Trade Goods and uncut gems that aren't crafted-only): yes;
---   4. anything else: no.
+--   3. raw materials (the AH's Trade Goods and uncut gems that aren't crafted-only, old ones too): yes;
+--   4. anything else: yes, from the patch it came out in (RTH_AHPatch; rule 2026-11-22).
 local function craftSpellsOf(id)
   local c = RTH_CraftedConsumables[id]
   if c then return c.spells, c.phase, "it" end
@@ -513,7 +609,13 @@ local function craftSpellsOf(id)
   if u then return u[4], u[2], "this " .. u[1] end
   local g = RTH_Gems[id]
   if g and g.spells[1] then return g.spells, g.phase, "this gem" end
-  if RTH_EnchantItemBy[id] then return RTH_EnchantItemBy[id], 1, "it" end
+  -- (phase = its earliest recipe's, like crafted items below: a 3.3 scroll says "not allowed until", not "nobody")
+  local eb = RTH_EnchantItemBy[id]
+  if eb then
+    local p
+    for _, s in ipairs(eb) do p = math.min(p or 99, RTH_RecipePatch[s] or 1) end
+    return eb, p or 1, "it"
+  end
   -- crafted gear (raid level), then anything else only a profession makes: bars, bolts, inks, leveling gear,
   -- bags... (RTH_CraftedOnly, GM rule 2026-11-19); phase = its earliest recipe's
   -- ...and what comes OUT of a profession's work (2026-11-21): Darkmoon cards (a random card from the scribe's
@@ -612,9 +714,11 @@ local function unblock(btn)
   st.cover:Hide()
   if GameTooltip:IsOwned(st.cover) then GameTooltip:Hide() end
 end
+local blockedButtons = {}   -- every button RTH may grey out (re-checked when the challenge is switched on / off)
 local function blockButton(btn, why)
   if not btn then return end
   local st = blockState(btn)
+  blockedButtons[#blockedButtons + 1] = btn
   RTH.Hook(btn, "Enable", function(self)
     local lines = RTH.Active() and why(self)
     if not lines then unblock(self); return end
@@ -627,6 +731,17 @@ local function blockButton(btn, why)
   end)
   RTH.Hook(btn, "Disable", function(self) if not st.busy then unblock(self) end end)
 end
+
+-- Switched to "not in the challenge" (Rules tab / the login question) while a window is open: nothing RTH greyed
+-- out stays grey. Enable() runs our hook, which unblocks when RTH isn't active (a button Blizzard wants off would
+-- not be blocked by us in the first place). The other way round, the next Enable decides as usual.
+RTH.Listen("CHALLENGE_TOGGLED", function()
+  if RTH.Active() then return end
+  for _, b in ipairs(blockedButtons) do
+    if b.rthBlock and b.rthBlock.on then b:Enable() end
+  end
+  if RTH.ReleaseMailMoneyButton then RTH.ReleaseMailMoneyButton() end
+end)
 
 -- Bid / Buyout on the Browse and Bids tabs: blocked when the selected auction is an item you may not buy
 -- (RTH.AHStatus "bad"; a yellow "check" item stays buyable). Called once Blizzard_AuctionUI is loaded (Overlay.lua).
@@ -650,6 +765,8 @@ end
 -- one gives the gold back and buys nothing - logging it would put a false break in everyone's log). So a bid
 -- is remembered (saved: the auction can end while you're offline, 48 h at most) and logged when the
 -- "auction won" mail arrives.
+-- (Since 2026-11-22 PlaceAuctionBid itself refuses such an item - see "the AH" below - so this is the backstop:
+-- a bid placed by an older RTH, or one where that check couldn't run.)
 local function pendingBids()
   RTH.char.ahBids = RTH.char.ahBids or {}
   local now = time()
@@ -670,8 +787,9 @@ RTH.Hook("PlaceAuctionBid", function(listType, index, bid)
   end
 end)
 local function checkWonMails()
-  local bids = RTH.char.ahBids
-  if not RTH.Active() or not bids or not next(bids) then return end
+  if not RTH.Active() or not RTH.char.ahBids then return end
+  local bids = pendingBids()   -- (also forgets bids older than 3 days)
+  if not next(bids) then return end
   for i = 1, GetInboxNumItems() do
     local invoiceType, itemName = GetInboxInvoiceInfo(i)
     local b = invoiceType == "buyer" and itemName and bids[itemName]
@@ -698,26 +816,36 @@ local function groupMate(name)
   return exact ~= nil or RTH.InGroup(name)
 end
 
--- checked BEFORE sending (like the inbox below): once the mail is on its way the amounts can read 0
-local function checkSendMail(recipient)
-  if groupMate(recipient) then return end
-  local m, cod = GetSendMailMoney(), GetSendMailCOD()
-  if m and m > 0 then RTH.AddBreak(RTH.PlayerName(), "mailed " .. money(m) .. " to " .. tostring(recipient)) end
-  if cod and cod > 0 then RTH.AddBreak(RTH.PlayerName(), "sent a COD mail (" .. money(cod) .. ") to " .. tostring(recipient)) end
+-- ---------------------------------------------------------------- stopping a rule break before it happens
+-- (user request 2026-11-22) Gold with someone outside the guild, items you may not have, 25-man raids: instead of
+-- only logging the break afterwards, RTH stops the action and says why in plain words (or asks first).
+function RTH.ShowBlocked(text)
+  StaticPopupDialogs.RTH_BLOCKED = StaticPopupDialogs.RTH_BLOCKED or {
+    text = "|cffd9a441Road to Halion|r\n\n%s", button1 = OKAY or "OK",
+    timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
+  }
+  StaticPopup_Show("RTH_BLOCKED", text)
 end
-do
-  local orig = SendMail
-  if orig then
-    SendMail = function(recipient, ...)
-      if RTH.Active() then pcall(checkSendMail, recipient) end
-      return orig(recipient, ...)
-    end
-  end
+-- "do it anyway?" - fn runs only on Yes
+function RTH.ConfirmRuleBreak(text, fn)
+  StaticPopupDialogs.RTH_CONFIRM_BREAK = StaticPopupDialogs.RTH_CONFIRM_BREAK or {
+    text = "|cffd9a441Road to Halion|r\n\n%s", button1 = YES or "Yes", button2 = NO or "No",
+    OnAccept = function(self, data) if type(data) == "function" then data() end end,
+    timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
+  }
+  StaticPopup_Show("RTH_CONFIRM_BREAK", text, nil, fn)
 end
 
--- Taking money / paying COD empties the mail, so these are checked BEFORE the call (a post-hook reads 0).
--- The mail functions are not protected, so wrapping them is safe.
-local function checkMailMoney(index)
+-- Mail: what an action would break (nil = fine). Checked BEFORE the call: once the mail is on its way (or the gold
+-- taken) the amounts read 0. The mail functions are not protected, so wrapping them is safe - and it covers mail
+-- addons (Postal...) too, not only Blizzard's buttons.
+local function sendMailProblem(recipient)
+  if groupMate(recipient) then return end
+  local m, cod = GetSendMailMoney(), GetSendMailCOD()
+  if m and m > 0 then return "You can't mail gold to " .. tostring(recipient) .. ": not a guild member." end
+  if cod and cod > 0 then return "You can't send a COD mail to " .. tostring(recipient) .. ": not a guild member." end
+end
+local function mailMoneyProblem(index)
   local _, _, sender, subject, m, _, _, _, _, wasReturned, _, canReply = GetInboxHeaderInfo(index)
   if not m or m <= 0 then return end
   if GetInboxInvoiceInfo(index) then return end   -- AH mails (sales, refunds) carry an invoice: selling is free
@@ -725,23 +853,98 @@ local function checkMailMoney(index)
   -- and a returned mail is your own gold coming back
   if not canReply or wasReturned then return end
   if groupMate(sender) then return end
-  RTH.AddBreak(RTH.PlayerName(), "took " .. money(m) .. " from a mail by " .. tostring(sender) .. " (" .. tostring(subject) .. ")")
+  return "You can't take gold from " .. tostring(sender) .. ": not a guild member.\nSend the mail back instead (Return button)."
 end
-local function checkMailCOD(index)
+local function mailCODProblem(index)
   local _, _, sender, _, _, cod = GetInboxHeaderInfo(index)   -- COD can only come from a player
-  if cod and cod > 0 and not groupMate(sender) then RTH.AddBreak(RTH.PlayerName(), "paid " .. money(cod) .. " COD to " .. tostring(sender)) end
+  if cod and cod > 0 and not groupMate(sender) then
+    return "You can't pay COD to " .. tostring(sender) .. ": not a guild member.\nSend the mail back instead (Return button)."
+  end
 end
-local function preHook(name, check)
+do
+  local orig = SendMail
+  if orig then
+    SendMail = function(recipient, ...)
+      if RTH.Active() then
+        local ok, why = pcall(sendMailProblem, recipient)
+        if ok and why then
+          RTH.ShowBlocked(why .. "\n\nGold with players outside the guild is a rule break. Take the gold off the mail.")
+          if SendMailFrame and SendMailFrame:IsShown() and SendMailFrame_CanSend then SendMailFrame_CanSend() end
+          return
+        end
+      end
+      return orig(recipient, ...)
+    end
+  end
+end
+-- problem(index, ...) -> reason stops the call; after(index, ...) runs when it goes ahead (the Tome check)
+local function guardMail(name, problem, after)
   local orig = _G[name]
   if not orig then return end
   _G[name] = function(index, ...)
-    if RTH.Active() and index then pcall(check, index, ...) end
+    if RTH.Active() and index then
+      local ok, why = pcall(problem, index, ...)
+      if ok and why then RTH.ShowBlocked(why); return end
+      if after then pcall(after, index, ...) end
+    end
     return orig(index, ...)
   end
 end
-preHook("TakeInboxMoney", checkMailMoney)
-preHook("TakeInboxItem", function(index, a) checkMailCOD(index); RTH.TomeFromMail(index, a) end)
-preHook("AutoLootMailItem", function(index) checkMailMoney(index); checkMailCOD(index); RTH.TomeFromMail(index) end)   -- shift-click takes both
+guardMail("TakeInboxMoney", mailMoneyProblem)
+guardMail("TakeInboxItem", mailCODProblem, function(index, a) RTH.TomeFromMail(index, a) end)
+guardMail("AutoLootMailItem", function(index) return mailMoneyProblem(index) or mailCODProblem(index) end,   -- shift-click takes both
+  function(index) RTH.TomeFromMail(index) end)
+RTH.MailMoneyProblem = mailMoneyProblem
+
+-- the Send button: greyed out ("Blocked") while the mail would send gold or COD to someone outside the guild (items
+-- are fine). Blizzard re-checks the button when the name, the subject or Send/COD changes - not when gold is typed,
+-- so the gold box re-checks it too. The real stop is SendMail above (this only shows it early).
+if SendMailMailButton and SendMailNameEditBox and SendMailMoney then
+  blockButton(SendMailMailButton, function()
+    local name = SendMailNameEditBox:GetText() or ""
+    if name == "" or groupMate(name) or (MoneyInputFrame_GetCopper(SendMailMoney) or 0) <= 0 then return nil end
+    return { "You can't send gold or a COD mail to " .. name .. ": not a guild member.",
+             "Take the gold off the mail - sending items is fine." }
+  end)
+  if MoneyInputFrame_SetOnValueChangedFunc then
+    local prev = SendMailMoney.onValueChangedFunc
+    MoneyInputFrame_SetOnValueChangedFunc(SendMailMoney, function(...)
+      if prev then prev(...) end
+      if SendMailFrame_CanSend then SendMailFrame_CanSend() end
+    end)
+  end
+end
+-- the gold in an opened mail from someone outside the guild: the gold icon is greyed out, hovering says why
+-- (taking it is stopped in TakeInboxMoney above whichever way it's clicked)
+RTH.Hook("OpenMail_Update", function()
+  local b = OpenMailMoneyButton
+  if not b then return end
+  local id = InboxFrame and InboxFrame.openMailID
+  local ok, why = false, nil
+  if RTH.Active() and id then ok, why = pcall(mailMoneyProblem, id) end
+  local st = blockState(b)
+  if ok and type(why) == "string" then   -- (a failed check is never shown as a reason)
+    st.on, st.lines = true, { why }
+    b:Disable()
+    SetItemButtonDesaturated(b, 1)
+    st.cover:Show()
+  elseif st.on then
+    st.on, st.lines = false, nil
+    b:Enable()
+    SetItemButtonDesaturated(b, nil)
+    st.cover:Hide()
+  end
+end)
+function RTH.ReleaseMailMoneyButton()   -- (switched out of the challenge with a mail open)
+  local b = OpenMailMoneyButton
+  local st = b and b.rthBlock
+  if st and st.on then
+    st.on, st.lines = false, nil
+    b:Enable()
+    SetItemButtonDesaturated(b, nil)
+    st.cover:Hide()
+  end
+end
 
 -- trade: remember the gold on the window when both accept; the break is logged when the trade completes
 local tradeSnap
@@ -768,10 +971,32 @@ local function tradeOutsider()
   local who = RTH.UnitKey("NPC")   -- the trade partner ("Name-Realm" from another realm)
   if who and not groupMate(who) then return who end
 end
+-- an item on THEIR side you're not allowed to have (red mark: a later phase, 25-man loot, a crafted thing nobody in
+-- the group can make...) - user request 2026-11-22. Giving such items away stays fine; a yellow "check" isn't stopped.
+local function tradeIncomingProblem()
+  if not RTH.ItemVerdict then return end
+  for i = 1, (MAX_TRADABLE_ITEMS or 6) do
+    local link = GetTradeTargetItemLink(i)
+    if link then
+      local s, r = RTH.ItemVerdict(link, "bag")
+      if s == "bad" then return link, r end
+    end
+  end
+end
 blockButton(TradeFrameTradeButton, function()
   local who = tradeOutsider()
-  return who and { "You can't trade with " .. who .. ": not a guild member." }
+  if who then return { "You can't trade with " .. who .. ": not a guild member." } end
+  local link, r = tradeIncomingProblem()
+  if link then return { "You'd get " .. link .. " - you're not allowed to have it:", tostring(r), "Ask them to take it out of the trade." } end
 end)
+-- they put an item in or take one out: decide again (Blizzard doesn't touch the button for that)
+local function recheckTrade()
+  local b = TradeFrameTradeButton
+  if not (b and TradeFrame and TradeFrame:IsShown()) then return end
+  local on = b:IsEnabled()   -- (3.3.5: 1 or 0, and 0 is true in Lua)
+  if on == 1 or on == true or (b.rthBlock and b.rthBlock.on) then TradeFrameTradeButton_Enable() end
+end
+RTH.On("TRADE_TARGET_ITEM_CHANGED", recheckTrade)
 
 -- ...and a popup says so in plain words (user request 2026-11-20). Once per person per session.
 local tradeWarned = {}
@@ -801,6 +1026,229 @@ RTH.On("UI_INFO_MESSAGE", function(msg)
   if groupMate(s.who) then return end
   if s.give > 0 then RTH.AddBreak(RTH.PlayerName(), "traded " .. money(s.give) .. " to " .. tostring(s.who)) end
   if s.get > 0 then RTH.AddBreak(RTH.PlayerName(), "got " .. money(s.get) .. " in a trade from " .. tostring(s.who)) end
+end)
+
+-- ---------------------------------------------------------------- vendors: ask before buying what isn't allowed
+-- (user request 2026-11-22) A vendor item with a red mark (a later phase, the Tome below level 77...) is one
+-- right-click away. Vendors have no button to grey out, so RTH asks first: "not allowed for you: <why>. Buy anyway?"
+-- BuyMerchantItem / PickupMerchantItem are not protected; wrapped here, AFTER the Tome hooks at the top of this file
+-- (so a bought Tome is still checked), and every vendor addon calling them gets the question too.
+local function merchantProblem(index)
+  local link = GetMerchantItemLink(index)
+  if not (link and RTH.ItemVerdict) then return end
+  local s, r = RTH.ItemVerdict(link, "vendor")
+  if s == "bad" then return link, r end
+end
+local function askBeforeBuying(name)
+  local orig = _G[name]
+  if not orig then return end
+  _G[name] = function(index, ...)
+    -- (an item on the cursor = SELLING it by dropping it on the vendor: never asked)
+    if RTH.Active() and index and index > 0 and not (CursorHasItem and CursorHasItem()) then
+      local ok, link, r = pcall(merchantProblem, index)
+      if ok and link then
+        local n, a, b = select("#", ...), ...
+        RTH.ConfirmRuleBreak(link .. " isn't allowed for you:\n" .. tostring(r) .. "\n\nBuy it anyway?", function()
+          if n == 0 then orig(index) elseif n == 1 then orig(index, a) else orig(index, a, b) end
+        end)
+        return
+      end
+    end
+    return orig(index, ...)
+  end
+end
+askBeforeBuying("BuyMerchantItem")
+askBeforeBuying("PickupMerchantItem")
+
+-- ---------------------------------------------------------------- the AH: every buy goes through PlaceAuctionBid
+-- (2026-11-22) Bid / Buyout are greyed out above, but AH addons (Auctionator's Buy) call PlaceAuctionBid themselves.
+-- So the call itself is stopped for an item you may not buy - after the logging hook above, so a stopped buy is
+-- not logged. PlaceAuctionBid is not protected.
+do
+  local orig = PlaceAuctionBid
+  if orig then
+    PlaceAuctionBid = function(listType, index, ...)
+      if RTH.Active() and listType and index then
+        local ok, s, r = pcall(function() return RTH.AHStatus(GetAuctionItemLink(listType, index)) end)
+        if ok and s == "bad" then
+          RTH.ShowBlocked("You may not buy " .. tostring(GetAuctionItemLink(listType, index) or "this item") .. ":\n"
+            .. tostring(r):gsub("^AH: ", ""))
+          return
+        end
+      end
+      return orig(listType, index, ...)
+    end
+  end
+end
+
+-- ---------------------------------------------------------------- other addons' mail / vendor / AH buttons
+-- (user request 2026-11-22: "ElvUI reskins everything", "Postal has Take All"). ElvUI's skins only restyle
+-- Blizzard's buttons - the blocks above keep working on them. But some addons load BEFORE RTH and keep their own
+-- copy of TakeInboxMoney / BuyMerchantItem (local X = X), so RTH's stops above never see their calls. Each one is
+-- caught where RTH can reach it (checked against their code: Postal 3.4.0, ElvUI_Enhanced, ElvUI_Extras,
+-- Auctionator 2.6.8):
+local function outsiderGoldMail()   -- the sender of the first inbox mail with gold from outside the guild
+  for i = 1, (GetInboxNumItems() or 0) do
+    local ok, why = pcall(mailMoneyProblem, i)
+    if ok and why then return (select(3, GetInboxHeaderInfo(i))) or "someone" end
+  end
+end
+local function bulkMailWhy()
+  local who = RTH.Active() and outsiderGoldMail()
+  return who and { "A mail from " .. who .. " has gold in it - " .. who .. " isn't a guild member.",
+    "Send that mail back first (open it, Return). Then this button works again." }
+end
+local bulkButtons = {}
+local function recheck(btn)   -- (3.3.5 IsEnabled: 1 or 0 - and 0 is true in Lua)
+  local on = btn:IsEnabled()
+  if on == 1 or on == true or (btn.rthBlock and btn.rthBlock.on) then btn:Enable() end
+end
+local function guardBulk(btn)
+  if not btn or bulkButtons[btn] then return end
+  bulkButtons[btn] = true
+  blockButton(btn, bulkMailWhy)
+  recheck(btn)
+end
+RTH.On("MAIL_INBOX_UPDATE", function() for btn in pairs(bulkButtons) do recheck(btn) end end)
+RTH.Listen("CHALLENGE_TOGGLED", function() for btn in pairs(bulkButtons) do recheck(btn) end end)
+
+local skippedMail = {}   -- printed once per mail while the mailbox is open
+RTH.On("MAIL_SHOW", function() skippedMail = {} end)
+local installed = {}
+local function installAddonGuards()
+  -- Postal: Open All waits for the gold to leave the mail - a stopped mail would hang it at "In Progress" for good,
+  -- and its own place in the mailbox is private. So Open All / Open (selected) are greyed out while an outsider's
+  -- gold mail is in the inbox, and OpenAll itself refuses (it restarts by itself after 50 mails, without a click).
+  if Postal and Postal.GetModule and not installed.postal then
+    local P = Postal:GetModule("OpenAll", true)
+    local S = Postal:GetModule("Select", true)
+    if PostalOpenAllButton or PostalSelectOpenButton then
+      installed.postal = true
+      guardBulk(PostalOpenAllButton)
+      guardBulk(PostalSelectOpenButton)
+      local function wrap(mod, name, only)
+        local orig = mod and mod[name]
+        if type(orig) ~= "function" then return end
+        mod[name] = function(self, ...)
+          local lines = (not only or only(...)) and bulkMailWhy()
+          if lines then
+            RTH.ShowBlocked(table.concat(lines, "\n"))
+            if name == "OpenAll" and self.Reset then pcall(self.Reset, self) end   -- (a restart: clear "In Progress")
+            return
+          end
+          return orig(self, ...)
+        end
+      end
+      wrap(P, "OpenAll")
+      wrap(S, "HandleSelect", function(mode) return mode end)   -- mode 1 = Open; Return (nil) is always fine
+    end
+  end
+  local E = ElvUI and type(ElvUI) == "table" and ElvUI[1]
+  if E and E.GetModule then
+    -- ElvUI_Enhanced Take All / Take Cash: their loop reads each mail through TAM:ProcessNextMail - an outsider's
+    -- gold mail is skipped (and said once), the rest is taken as usual. (COD mails it skips by itself.)
+    local TAM = not installed.tam and E:GetModule("Enhanced_TakeAllMail", true)
+    if TAM and type(TAM.ProcessNextMail) == "function" then
+      installed.tam = true
+      local orig = TAM.ProcessNextMail
+      TAM.ProcessNextMail = function(self, ...)
+        local i = self.mailIndex
+        if RTH.Active() and i then
+          local ok, why = pcall(mailMoneyProblem, i)
+          if ok and why then
+            local sender, subject = select(3, GetInboxHeaderInfo(i))
+            local key = tostring(sender) .. "|" .. tostring(subject)
+            if not skippedMail[key] then
+              skippedMail[key] = true
+              RTH.Print("|cffffd040skipped the mail from " .. tostring(sender) .. ": gold from outside the guild - send it back (open it, Return)|r")
+            end
+            if i + 1 > (GetInboxNumItems() or 0) then return self:StopOpening() end
+            self.mailIndex = i + 1
+            return self:AdvanceAndProcessNextMail()
+          end
+        end
+        return orig(self, ...)
+      end
+    end
+    -- ElvUI_Enhanced alt-click "buy a full stack" (a hook on MerchantItemButton_OnModifiedClick, looked up by name)
+    local EM = not installed.altBuy and E:GetModule("Enhanced_Misc", true)
+    if EM and type(EM.MerchantItemButton_OnModifiedClick) == "function" then
+      installed.altBuy = true
+      local orig = EM.MerchantItemButton_OnModifiedClick
+      EM.MerchantItemButton_OnModifiedClick = function(self, button, ...)
+        if RTH.Active() and IsAltKeyDown() and button and button.GetID then
+          local ok, link, r = pcall(merchantProblem, button:GetID())
+          if ok and link then
+            RTH.ShowBlocked(link .. " isn't allowed for you:\n" .. tostring(r)
+              .. "\n\nAlt-click doesn't buy it. Right-click it to buy one - RTH asks first.")
+            return
+          end
+        end
+        return orig(self, button, ...)
+      end
+    end
+  end
+  -- ElvUI_Extras: its stack-split window buys with its own copy of BuyMerchantItem (no question), so a stack of an
+  -- item you may not have isn't offered: the window closes and says why. (Its rule-based auto-buy can't be reached
+  -- by any addon; the red mark and the "used it" rule still apply to what it buys.)
+  if not installed.split and IsAddOnLoaded and IsAddOnLoaded("ElvUI_Extras") and StackSplitFrame then
+    installed.split = true
+    RTH.HookScript(StackSplitFrame, "OnShow", function(self)
+      local owner = self.owner
+      local name = owner and owner.GetName and owner:GetName()
+      if not (RTH.Active() and name and name:find("Merchant") and MerchantFrame and MerchantFrame:IsShown()) then return end
+      local ok, link, r = pcall(merchantProblem, owner:GetID())
+      if ok and link then
+        self:Hide()
+        RTH.ShowBlocked(link .. " isn't allowed for you:\n" .. tostring(r)
+          .. "\n\nShift-click doesn't buy it. Right-click it to buy one - RTH asks first.")
+      end
+    end)
+  end
+  -- Auctionator's Buy button: greyed out for an item you may not buy (its scan's item; Atr_GetCurrentPane is public).
+  -- The buy itself is stopped in PlaceAuctionBid above either way.
+  if not installed.atr and Atr_Buy1_Button and Atr_GetCurrentPane then
+    installed.atr = true
+    blockButton(Atr_Buy1_Button, function()
+      local ok, pane = pcall(Atr_GetCurrentPane)
+      local link = ok and type(pane) == "table" and type(pane.activeScan) == "table" and pane.activeScan.itemLink
+      local s, r = RTH.AHStatus(link or nil)
+      if s ~= "bad" then return nil end
+      return { "You may not buy " .. tostring(link) .. ".", (tostring(r):gsub("^AH: ", "")) }
+    end)
+    recheck(Atr_Buy1_Button)
+  end
+end
+RTH.AddonGuardsInstalled = installed   -- (/rth status)
+-- the addons build their buttons at login or when the window first opens: try then (each guard once)
+RTH.On("PLAYER_LOGIN", function() RTH.After("addonGuards", 3, installAddonGuards) end)
+RTH.On("MAIL_SHOW", installAddonGuards)
+RTH.On("MERCHANT_SHOW", installAddonGuards)
+RTH.On("AUCTION_HOUSE_SHOW", installAddonGuards)
+
+-- ---------------------------------------------------------------- 25-man raids: warn before anyone zones in
+-- (user request 2026-11-22) The challenge is 10-man only; entering a 25-man raid is a rule break. When the raid
+-- you're in is set to 25 players (joining one, or the leader switching), a popup says so - once per switch.
+local warned25
+local function check25()
+  if not RTH.Active() or not GetRaidDifficulty or (GetNumRaidMembers() or 0) == 0 then warned25 = nil; return end
+  local d = GetRaidDifficulty()
+  if d == 2 or d == 4 then
+    if warned25 ~= d then
+      warned25 = d
+      RTH.ShowBlocked("This raid is set to |cffff404025 players|r.\n\nRoad to Halion is 10-man only: entering a 25-man "
+        .. "raid is a rule break. Ask the raid leader to set Raid Difficulty to 10 Player (right-click your portrait).")
+    end
+  else
+    warned25 = nil
+  end
+end
+RTH.On("RAID_ROSTER_UPDATE", function() RTH.After("check25", 1, check25) end)
+-- "Raid Difficulty set to 25 Player." in the client's own language (GlobalStrings), not a hard-coded English word
+local diffPattern = ERR_RAID_DIFFICULTY_CHANGED_S
+  and ("^" .. ERR_RAID_DIFFICULTY_CHANGED_S:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1"):gsub("%%%%s", ".+"))
+RTH.On("CHAT_MSG_SYSTEM", function(msg)
+  if type(msg) == "string" and (not diffPattern or msg:find(diffPattern)) then RTH.After("check25", 0.5, check25) end
 end)
 
 -- ---------------------------------------------------------------- using what the group can't make: rule break
