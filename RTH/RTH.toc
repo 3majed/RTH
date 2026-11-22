@@ -1,0 +1,31 @@
+## Interface: 30300
+## Title: Road to Halion
+## Notes: Tracks the Road to Halion challenge: phases, rules, professions and an honest journey log.
+## Author: Majed
+## Version: 1.6.0
+## SavedVariables: RTH_DB
+## SavedVariablesPerCharacter: RTH_CharDB
+
+Data\Progress.lua
+Data\Items.lua
+Data\Professions.lua
+Data\Recipes.lua
+Data\Extra.lua
+Data\GateOptions.lua
+
+Core.lua
+Rules.lua
+Professions.lua
+Progress.lua
+Sync.lua
+Overlay.lua
+Tooltip.lua
+
+UI\Widgets.lua
+UI\MainFrame.lua
+UI\TabProgress.lua
+UI\TabRaid.lua
+UI\TabProfs.lua
+UI\TabLog.lua
+UI\TabRules.lua
+UI\Extras.lua
