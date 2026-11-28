@@ -157,6 +157,10 @@ RTH_Item25Only = {
   [53129]=true,[53132]=true,[53133]=true,[53134]=true,[53486]=true,[53487]=true,[53488]=true,[53489]=true,[53490]=true,[54569]=true,
   [54571]=true,[54572]=true,[54573]=true,[54576]=true,[54577]=true,[54578]=true,[54579]=true,[54580]=true,[54581]=true,[54582]=true,
   [54583]=true,[54584]=true,[54585]=true,[54586]=true,[54587]=true,[54588]=true,[54589]=true,[54590]=true,[54591]=true,
+  -- made from 25-man-only materials (legendaries) - added 2026-11-23
+  [49623]=true, -- Shadowmourne - needs Shadowfrost Shards (ICC 25 only)
+  [49888]=true, -- Shadow's Edge - the Shadowmourne quest line starts in ICC 25 only
+  [46017]=true, -- Val'anyr, Hammer of Ancient Kings - Fragments of Val'anyr drop in Ulduar 25 only
 }
 
 -- RTH_CraftedConsumables[itemID] = {phase=, spells={recipe spells}}: consumables a group member could craft.
@@ -1102,7 +1106,8 @@ RTH_RepEnchants = {
   [3818]={"Arcanum of the Stalwart Protector", {{1106,7,"Argent Crusade"}}},
   [3819]={"Arcanum of Blissful Mending", {{1091,7,"The Wyrmrest Accord"}}},
   [3820]={"Arcanum of Burning Mysteries", {{1090,7,"Kirin Tor"}}},
-  [3842]={"Arcanum of the Savage Gladiator", {{1037,8,"Alliance Vanguard"},{1052,8,"Horde Expedition"}}},
+  -- (3842 Arcanum of the Savage Gladiator left out on purpose - user 2026-11-28: the server also sells 44701 / 44702
+  -- with no reputation needed, so anyone may wear it)
   [3875]={"Lesser Inscription of the Axe", {{1119,6,"The Sons of Hodir"}}},
   [3876]={"Lesser Inscription of the Pinnacle", {{1119,6,"The Sons of Hodir"}}},
 }

@@ -1,8 +1,8 @@
 ## Interface: 30300
-## Title: Road to Halion
+## Title: |cffffffffRoad to|r |cffa335eeHalion|r
 ## Notes: Tracks the Road to Halion challenge: phases, rules, professions and an honest journey log.
 ## Author: Majed
-## Version: 1.6.1
+## Version: 1.8.0
 ## SavedVariables: RTH_DB
 ## SavedVariablesPerCharacter: RTH_CharDB
 

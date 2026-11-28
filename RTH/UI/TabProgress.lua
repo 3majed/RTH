@@ -398,7 +398,7 @@ local function refresh(f)
     end
   end
 
-  -- optional raids (they count for the gate when the guild master says so)
+  -- the phase's Vault boss and Onyxia: part of the gate when the guild master's box is on (the default, user 2026-11-28)
   local ph = RTH_Phases[viewed]
   local optCounts = RTH.db.group.gates[viewed] and RTH.db.group.gates[viewed].opt
   local function optionalRow(label, bossName, killed)
@@ -411,7 +411,7 @@ local function refresh(f)
     b:Show()
     r.title:SetText(label)
     r.title:SetTextColor(0.7, 0.8, 1)
-    r.count:SetText(optCounts and "|cffd9a441counts for the gate|r" or "|cffb8b8b8optional|r")
+    r.count:SetText(optCounts and "|cffd9a441needed for the gate|r" or "|cffb8b8b8optional|r")
   end
   if ph.voa then
     optionalRow("VAULT  |cffcccccc" .. ph.voa.name .. "|r", ph.voa.name, RTH.BossKills(viewed .. ":voa", false) > 0)

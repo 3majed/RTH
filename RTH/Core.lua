@@ -110,6 +110,22 @@ function RTH.PhaseLabel(p)
   return "Phase " .. p .. " (" .. (RTH.PHASE_NAMES[p] or "?") .. ")"
 end
 
+-- a warning that matters (a rule break is one step away): red chat line, the raid-warning text in the middle of
+-- the screen and its sound; popup = also a box that stays until OK (the text it shows). Callers show each one once.
+function RTH.Alert(text, popup)
+  print_("|cffff4040" .. text .. "|r")
+  if RaidNotice_AddMessage and RaidWarningFrame and ChatTypeInfo then
+    RaidNotice_AddMessage(RaidWarningFrame, "Road to Halion: " .. text, ChatTypeInfo["RAID_WARNING"])
+  end
+  if PlaySound then PlaySound("RaidWarning") end
+  if popup and StaticPopup_Show then
+    StaticPopupDialogs.RTH_WARN = StaticPopupDialogs.RTH_WARN or {
+      text = "|cffd9a441Road to Halion|r\n\n%s", button1 = OKAY or "OK", timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
+    }
+    StaticPopup_Show("RTH_WARN", popup)
+  end
+end
+
 -- ---------------------------------------------------------------- events
 local eventFrame = CreateFrame("Frame")
 local handlers = {}
@@ -606,7 +622,13 @@ function RTH.IsGuildMember(name) return name ~= nil and guildRanks[name] ~= nil 
 local RTH_RECENT = 14 * 86400
 function RTH.HasRTH(name)
   local m = name and RTH.db.group.members[name]
-  return m ~= nil and not m.off and type(m.seen) == "number" and time() - m.seen < RTH_RECENT and RTH.IsGuildMember(name)
+  if not (m ~= nil and not m.off and type(m.seen) == "number" and time() - m.seen < RTH_RECENT) then return false end
+  if RTH.IsGuildMember(name) then return true end
+  -- (2026-11-28) the game's guild list arrives a few seconds after login or a /reload; until then nobody is "in the
+  -- guild". Someone whose RTH reported in the last 14 days still counts in that gap - otherwise a boss dying (or a
+  -- flask drunk) right after a /reload made every guildmate an outsider: a star on the kill, "nobody in the guild
+  -- can make it". Strangers have no such record.
+  return IsInGuild() and not RTH.GuildRosterKnown()
 end
 -- In the group (user rule 2026-11-18): you, the core list, subs, the guild master - and EVERY guild member who runs
 -- RTH in the challenge, no core list or party needed. Guild members without RTH count only through the core list.
@@ -731,7 +753,8 @@ RTH.AchDone = achDone
 
 -- Strict gate (user rule 2026-11-19): a gate achievement (or the VoA kill) counts only when this character's own
 -- RTH saw it happen at a CLEAN kill - the kill that earned it was logged by RTH (within 3 minutes) and has no
--- marks: no outsiders, not 25-man, no rule breaks or gear problems in the raid that night, nobody catching up.
+-- marks: no outsiders, not 25-man, no rule breaks or gear problems in the raid that night. (Someone behind in the
+-- raid is no mark since 2026-11-28 - only a message to the group.)
 -- Earned before RTH, with RTH off, or at a marked kill: it doesn't count, ever (an achievement can't be earned
 -- twice) - only the guild master's /rth gate can then pass that gate by hand.
 local function legit(key)
@@ -781,8 +804,9 @@ local function killNear(t)
   end
   return best
 end
+local NO_KILL = "no boss kill logged by RTH when it was earned"
 local function verdict(k)
-  if not k then return false, "no boss kill logged by RTH when it was earned" end
+  if not k then return false, NO_KILL end
   if type(k.stars) == "table" and k.stars[1] then return false, "earned at a marked kill (" .. tostring(k.stars[1]) .. ")" end
   return true
 end
@@ -804,14 +828,29 @@ local function inAnyGate(id)
   return false
 end
 local pendingAch = {}
+-- a gate achievement that doesn't count: a popup (2026-11-28, user: easy to miss as one chat line). "No kill logged"
+-- waits 20 s more first - the backup kill detection logs a kill 15 s after the boss died, and the KILL listener below
+-- then judges it again (no popup that turns out wrong a moment later).
+local function tellNotCounted(id)
+  local l = RTH.char.legit["a" .. id]
+  if not (l and not l.ok and inAnyGate(id)) then return end
+  local name = select(2, GetAchievementInfo(id)) or ("Achievement " .. id)
+  RTH.Print("|cffffd040" .. name .. " doesn't count for the gate|r - " .. tostring(l.why))
+  if StaticPopup_Show then
+    StaticPopupDialogs.RTH_ACH_NOT_COUNTED = StaticPopupDialogs.RTH_ACH_NOT_COUNTED or {
+      text = "|cffd9a441Road to Halion|r\n\n%s doesn't count for the unlock gate:\n%s\n\nAn achievement can be earned only once. "
+        .. "Was the mark a mistake? The guild master can delete that rule break (then it counts) or pass the gate by hand.",
+      button1 = OKAY or "OK", timeout = 0, whileDead = 1, hideOnEscape = 1, showAlert = 1,
+    }
+    StaticPopup_Show("RTH_ACH_NOT_COUNTED", name, tostring(l.why))
+  end
+end
 local function judgeAchievements()
   for id, t in pairs(pendingAch) do
     pendingAch[id] = nil
     local ok, why = verdict(killNear(t))
     RTH.char.legit["a" .. id] = { t = t, ok = ok, why = why }
-    if not ok and inAnyGate(id) then
-      RTH.Print("|cffffd040" .. (select(2, GetAchievementInfo(id)) or ("Achievement " .. id)) .. " doesn't count for the gate|r - " .. why)
-    end
+    if not ok then RTH.After("achTell" .. id, why == NO_KILL and 20 or 0, function() tellNotCounted(id) end) end
   end
   RTH.EvaluateGate()
 end
@@ -884,6 +923,23 @@ RTH.Listen("KILL", function(k)
   if RTH.char.legit[key] and RTH.char.legit[key].ok then return end   -- one clean kill is enough
   local ok, why = verdict(k)
   RTH.char.legit[key] = { t = k.t, ok = ok, why = why }
+end)
+
+-- (2026-11-28) a kill our RTH logs LATE - the backup kill detection (Progress.lua) waits 15 s for the statistic - can
+-- be the kill that earned an achievement judged 8 s after it popped as "no boss kill logged". Judge those again: the
+-- same rule (our own kill within 3 minutes, no stars), just with the kill now in the log.
+RTH.Listen("KILL", function(k)
+  if type(k) ~= "table" or k.synced or k.by ~= RTH.PlayerName() or k.kind == "dungeon" then return end
+  local changed = false
+  for lkey, l in pairs(RTH.char.legit) do
+    if lkey:sub(1, 1) == "a" and type(l) == "table" and not l.ok and type(l.t) == "number"
+        and math.abs(k.t - l.t) <= JUDGE_WINDOW and l.why == NO_KILL then
+      local ok, why = verdict(killNear(l.t))
+      RTH.char.legit[lkey] = { t = l.t, ok = ok, why = why }
+      changed = changed or ok
+    end
+  end
+  if changed then RTH.After("gateCheck", 1, RTH.EvaluateGate) end
 end)
 
 local function validPhase(p)   -- a whole number 1..MAX (a synced "1.5" would break every screen)
@@ -1022,7 +1078,7 @@ function RTH.PhaseOf(name)
 end
 
 -- catching up = behind the furthest phase in the guild: the first gate this character still has to finish,
--- have, need (nil = not behind). Raid members behind the raid's content are warned and their kills marked.
+-- have, need (nil = not behind). The group is told when someone behind is in a newer raid or dungeon (no mark).
 function RTH.MyCatchUp()
   local p = RTH.MyPhase()
   if p < RTH.GetPhase() then

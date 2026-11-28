@@ -67,12 +67,14 @@ function RTH.ItemVerdict(link, ctx, slot)
   -- a cut gem in bags / a trade: may it go into your gear? (a cutter in the group)
   local gs, gr = RTH.GemStatus((RTH.ParseLink(link)))   -- (( )): only the item ID, not ParseLink's other returns
   if gs == "bad" then return gs, gr end
+  -- crafted gear: someone in the guild knows the recipe, or a guild member made it (Rules.lua CraftedStatus).
+  -- A bag button can't read "Made by", so there "nobody knows it" is a yellow check; the tooltip reads it.
+  local id = RTH.ParseLink(link)
+  if ctx ~= "vendor" and RTH.CraftedGearSpells(id) then
+    local cs, cr = RTH.CraftedStatus(id, ctx == "equip" and slot and RTH.MakerOfSlot(slot) or nil, true)
+    if cs == "bad" or cs == "check" then return cs, cr end
+  end
   if ctx == "equip" then
-    local id = RTH.ParseLink(link)
-    if RTH_CraftedBy[id] and slot then
-      local cs, cr = RTH.CraftedStatus(id, RTH.MakerOfSlot(slot))
-      if cs == "bad" or cs == "check" then return cs, cr end
-    end
     local extras = RTH.LinkExtras(link)
     if extras[1] then return "bad", extras[1] end
   end

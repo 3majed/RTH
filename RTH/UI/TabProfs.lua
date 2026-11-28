@@ -187,7 +187,7 @@ local function build(f)
       if entry == "COOLDOWNS" then
         f.cdHeader = r
         r.empty = UI.Text(list, "small", { 0.72, 0.72, 0.72 })
-        r.empty:SetText("nobody in the group has a profession cooldown")
+        r.empty:SetText("nobody in the guild has a profession cooldown")
       end
     else
       f.rows[#f.rows + 1] = newProfRow(list, sw, entry)
@@ -275,7 +275,7 @@ local function refresh(f)
       local who = {}
       for _, p in ipairs(have) do who[#who + 1] = personText(p, r.skill) end
       -- one person per line: a long list used to wrap in the middle of a name (user 2026-11-19)
-      r.who:SetText(#who == 0 and "|cffff6060nobody in the group|r" or table.concat(who, "\n"))
+      r.who:SetText(#who == 0 and "|cffff6060nobody in the guild|r" or table.concat(who, "\n"))
       r.icon:SetDesaturated(#who == 0)
       fitRow(r)
     elseif r.cd then
@@ -364,7 +364,7 @@ local function refresh(f)
   for i = 1, math.min(RESULTS, #lines) do f.results[i]:SetText(lines[i]) end
   if #lines == 0 then
     f.results[1]:SetText(s and s.query == q
-      and ("|cffff6060nobody in the group can make or has that|r  |cffb8b8b8(" .. answered .. " answered)|r")
+      and ("|cffff6060nobody in the guild can make or has that|r  |cffb8b8b8(" .. answered .. " answered)|r")
       or "|cffb8b8b8searching...|r")
   elseif #lines > RESULTS then
     f.results[RESULTS]:SetText("|cffb8b8b8+" .. (#lines - RESULTS + 1) .. " more - type more letters|r")

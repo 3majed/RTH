@@ -46,7 +46,7 @@ local function recipeLines(tt, id)
   if could[1] then tt:AddLine("|cff40ff40Could learn:|r " .. table.concat(could, ", "), 1, 1, 1, true) end
   if low[1] then tt:AddLine("|cffffd040Skill too low:|r " .. table.concat(low, ", "), 1, 1, 1, true) end
   if not (known[1] or could[1] or low[1]) then
-    tt:AddLine("Nobody in the group has " .. (RTH.PROF_NAME[skill] or "this profession"), 0.72, 0.72, 0.72)
+    tt:AddLine("Nobody in the guild has " .. (RTH.PROF_NAME[skill] or "this profession"), 0.72, 0.72, 0.72)
   end
 end
 
@@ -98,10 +98,13 @@ local function decorate(tt)
     if rs == "bad" or rs == "check" then RTH.AddTooltipLine(tt, rs, rr) end
   end
 
-  -- crafted gear: who made it (read from this very tooltip)
-  if RTH_CraftedBy[id] then
+  -- crafted gear: ONE line everywhere (AH, bags, worn, trade skill window - user 2026-11-27): green "Name can make
+  -- it" or red "nobody in the guild knows this recipe". (The rule: fine when someone in the guild knows the recipe,
+  -- bought from anyone - or a guild member made it.) A later phase already said so above.
+  local crafted = RTH.CraftedGearSpells(id) and s ~= "bad" and s ~= "check"
+  if crafted then
     local cs, cr = RTH.CraftedStatus(id, RTH.MakerFromTooltip(tt))
-    if cs == "bad" or cs == "check" then RTH.AddTooltipLine(tt, cs, cr) end
+    if cs then RTH.AddTooltipLine(tt, cs, cr) end
   end
 
   -- a cut gem itself: may it go into your gear? (the bag mark shows this one too - so must the tooltip,
@@ -113,7 +116,7 @@ local function decorate(tt)
   for _, extra in ipairs(RTH.LinkExtras(link)) do RTH.AddTooltipLine(tt, "bad", extra) end
 
   -- buying it on the Auction House (same rule as the listing's mark and the bid check)
-  if auctionListing(owner) then
+  if auctionListing(owner) and not crafted then   -- (crafted gear: its one line above says the same)
     local as, ar = RTH.AHStatus(link)
     if as then RTH.AddTooltipLine(tt, as, ar) end
   end

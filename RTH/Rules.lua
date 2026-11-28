@@ -201,7 +201,17 @@ end
 -- that a person can craft them". RTH_CraftGather stays in the data, unused by the rules.)
 
 
--- status, reason for "can someone in the group make one of these recipe spells?"
+-- whose recipes count (rule 19, user 2026-11-28 "anyone still in the guild"): anyone still on the guild list or the
+-- core list (or the guild master) whose recipes RTH received - however long ago - unless that character answered
+-- "No" to the challenge. (It was the 14-day "in the group" check: a crafter away for two weeks made everyone's
+-- flasks red.) In the seconds before the guild list loads, HasRTH covers the recent ones.
+local function recipeHolder(name)
+  local m = RTH.db.group.members[name]
+  if type(m) ~= "table" or m.off then return false end
+  return RTH.IsGuildMember(name) or RTH.IsCore(name) or RTH.IsRulesKeeper(name) or RTH.HasRTH(name)
+end
+
+-- status, reason for "can someone in the guild make one of these recipe spells?"
 function RTH.CraftStatus(spells, what)
   what = what or "it"
   if not spells or not spells[1] then return nil end
@@ -210,11 +220,11 @@ function RTH.CraftStatus(spells, what)
     if RTH.RecipeUnlocked(s) then
       if memberKnows(me, s) then return "ok", me .. " can make " .. what end
       for name in pairs(RTH.db.group.members) do
-        if name ~= me and RTH.InGroup(name) and memberKnows(name, s) then return "ok", name .. " can make " .. what end
+        if name ~= me and memberKnows(name, s) and recipeHolder(name) then return "ok", name .. " can make " .. what end
       end
     end
   end
-  return "bad", "nobody in the group can make " .. what
+  return "bad", "nobody in the guild can make " .. what
 end
 
 -- consumables and glyphs that can ONLY be crafted (RTH_UseItems): may this character use one?
@@ -349,10 +359,21 @@ function RTH.RepEnchantStatus(enchantID, who)
   if not re then return nil end
   if who and who ~= RTH.PlayerName() then return nil end
   if not RTH.char.repScanned then return "check", re[1] .. " needs reputation - RTH hasn't read yours yet" end
-  local first
+  local first, unreadable
+  -- (2026-11-28) the list is read by faction NAME and RTH only knows the English ones: on a German / French... client
+  -- a faction never matches, so every reputation enchant was red and putting one on a false rule break. There a
+  -- faction missing from the list is a yellow check (no break); English clients are unchanged.
+  local l = GetLocale and GetLocale() or "enUS"
+  local english = l == "enUS" or l == "enGB"
   for _, need in ipairs(re[2]) do
-    if (RTH.char.rep[need[3]] or 0) >= need[2] then return "ok" end
+    local standing = RTH.char.rep[need[3]]
+    if (standing or 0) >= need[2] then return "ok" end
+    if standing == nil and not english then unreadable = true end
     first = first or need
+  end
+  if unreadable then
+    return "check", re[1] .. " needs " .. first[3] .. " " .. standingLabel(first[2])
+      .. " - RTH can't read reputation on a non-English game client, check it yourself"
   end
   return "bad", re[1] .. " needs " .. first[3] .. " " .. standingLabel(first[2]) .. " on this character"
 end
@@ -390,12 +411,16 @@ function RTH.EnchantStatus(enchantID, who)
   -- made directly (Enchanting) or from an item (leg armor, spellthread, scope...): a crafter in the group
   local s, r = RTH.CraftStatus(e.spells, "this enchant")
   if s == "ok" then return s, "enchant: " .. r end
-  local firstBad = r
+  local firstBad, crafted = r, s ~= nil
   for _, item in ipairs(e.items) do
     s, r = RTH.CraftStatus(RTH_EnchantItemBy[item], "this enchant")
     if s == "ok" then return s, "enchant: " .. r end
+    if s then crafted = true; firstBad = firstBad or r end
   end
-  return "bad", "enchant: " .. (firstBad or r or "nobody in the group can make it")
+  -- (fix 2026-11-28) no profession makes it at all - a quest reward or a drop (Zul'Gurub idols, Naxx / AQ head
+  -- enchants, Glyph of Chromatic Warding...): fine like any quest / drop item. A reputation one was checked above.
+  if not crafted then return "ok" end
+  return "bad", "enchant: " .. (firstBad or "nobody in the guild can make it")
 end
 
 function RTH.GemStatus(gemItem, who)
@@ -463,11 +488,43 @@ function RTH.MakerFromTooltip(tt)
   return nil
 end
 
-function RTH.CraftedStatus(itemID, maker)
-  if not RTH_CraftedBy[itemID] then return nil end
-  if not maker then return "check", "crafted item without a maker - check manually" end
-  if RTH.InGroup(maker) then return "ok", "made by " .. maker end
-  return "bad", "made by " .. maker .. ", who is not in the group"
+-- crafted gear (user rule 2026-11-27): either a guild member crafted it for you, or you bought it (AH, anyone) and
+-- someone in the guild knows the recipe - the same rule as buying it on the AH. (Before, wearing it wanted the maker
+-- in the group, so gear bought on the AH was green to buy and red once worn, even with a guild crafter.)
+-- (recipe knowledge comes from guild members running RTH - CraftStatus)
+-- One line, the same everywhere (AH, bags, worn - user 2026-11-27): green "Name can make it", or the red one.
+-- maker: the "Made by" name, nil when not made yet (trade skill window, a link, an AH listing without it)
+-- unread: true when the item IS made but its "Made by" couldn't be read (a bag mark, an inspected player's gear):
+-- then "nobody knows the recipe" is only a yellow check - a guild member may have made it.
+local CRAFTED_BAD = "nobody in the guild knows this recipe - not allowed until someone learns it"
+local CRAFTED_UNREAD = "nobody in the guild knows this recipe - fine only if a guild member made it"
+
+-- crafted GEAR (audit 2026-11-27): RTH_CraftedBy, plus the gear in RTH_CraftedOnly (leveling gear, TBC JC rings...)
+-- and RTH_CraftedFrom (Darkmoon cards) - the AH already wanted a crafter for them, wearing one was never checked.
+-- Returns the recipe spells and whether the item can carry a "Made by" line (Darkmoon cards never do).
+local NOT_GEAR = { [""] = true, INVTYPE_BAG = true, INVTYPE_QUIVER = true, INVTYPE_AMMO = true, INVTYPE_BODY = true,
+  INVTYPE_TABARD = true }
+local function craftedGearSpells(id)
+  if not id then return nil end
+  if RTH_Holiday and RTH_Holiday[id] then return nil end   -- holiday items: no crafter needed (rule 2026-11-22)
+  if RTH_CraftedBy[id] then return RTH_CraftedBy[id], true end
+  local only = RTH_CraftedOnly and RTH_CraftedOnly[id]
+  local list = only or (RTH_CraftedFrom and RTH_CraftedFrom[id])
+  if not list then return nil end
+  local loc = select(9, GetItemInfo(id))
+  if not loc or NOT_GEAR[loc] then return nil end   -- (bars, bolts, bags, ammo: holding them is fine)
+  return list, only ~= nil
+end
+RTH.CraftedGearSpells = craftedGearSpells
+
+function RTH.CraftedStatus(itemID, maker, unread)
+  local spells, canHaveMaker = craftedGearSpells(itemID)
+  if not spells then return nil end
+  local s, r = RTH.CraftStatus(spells, "it")
+  if s == "ok" then return "ok", r end
+  if maker and (RTH.InGroup(maker) or RTH.IsGuildMember(maker)) then return "ok", "made by " .. maker end
+  if unread and not maker and canHaveMaker then return "check", CRAFTED_UNREAD end
+  return "bad", CRAFTED_BAD
 end
 
 -- ---------------------------------------------------------------- everything you wear
@@ -485,7 +542,8 @@ local function checkGear(unit, who)
       local s, r = RTH.ItemStatus(link, "equip", level)
       if s == "bad" then problems[#problems + 1] = { slot = slot, link = link, reason = r }
       elseif s == "check" then checks[#checks + 1] = { slot = slot, link = link, reason = r } end
-      local cs, cr = RTH.CraftedStatus(id, RTH_CraftedBy[id] and makerOfSlot(slot, unit) or nil)
+      -- (unread = true: an inspected player's tooltip may not show "Made by" - a yellow check, not red)
+      local cs, cr = RTH.CraftedStatus(id, craftedGearSpells(id) and makerOfSlot(slot, unit) or nil, true)
       if cs == "bad" then problems[#problems + 1] = { slot = slot, link = link, reason = cr }
       elseif cs == "check" then checks[#checks + 1] = { slot = slot, link = link, reason = cr } end
       local bad, chk = RTH.LinkExtras(link, who)
@@ -526,7 +584,13 @@ function RTH.RulesText()
   add(H("YOUR PHASE"))
   add("You are in |cffffd040" .. RTH.PhaseLabel(p) .. "|r - patch " .. (RTH.PHASE_PATCH[p] or "?") .. ". Everything from that patch "
     .. "and older is open for you.\n")
-  add("Raids you may enter (10-man only): " .. table.concat(raids, ", ") .. ".\n")
+  add("Raids of your phase (10-man only): " .. table.concat(raids, ", ") .. ".\n")
+  -- (2026-11-28: being behind is no rule break - the group is told to finish your gate first)
+  local far = RTH.GetPhase and RTH.GetPhase() or p
+  if far > p then
+    add("The guild is further (" .. RTH.PhaseLabel(far) .. "). You may go with them, but finish your own gate first - "
+      .. "only it opens your next phase, and RTH tells the group you're behind.\n")
+  end
   if p < RTH.MAX_PHASE then
     add("Next: " .. RTH.PhaseLabel(p + 1) .. (nextRaids[1] and (" - " .. table.concat(nextRaids, ", ")) or "")
       .. ". It opens for you when you finish its unlock gate (Progress tab), in clean guild runs.\n")
@@ -535,13 +599,15 @@ function RTH.RulesText()
   add("- 10-man only. Entering a 25-man raid is a rule break (RTH warns when a raid is set to 25).\n")
   add("- Only the group: guild members. No outsiders in the raid.\n")
   add("- A rule break or a gear problem in the raid that night puts a mark on the kills - marked kills don't count for the gate.\n")
+  add("- Someone behind (an earlier gate not finished)? RTH tells the group - finish their gate together first. Not a rule break.\n")
   add("\n" .. H("GEAR (from level 80)"))
   add("- Wear only gear from your phase or older. Never 25-man loot.\n")
   add("- Heirlooms are fine while leveling - take them off at 80 before a boss.\n")
-  add("- Enchants and gems on your gear: someone in your group must be able to make them.\n")
+  add("- Enchants and gems on your gear: someone in the guild must be able to make them (vendor, quest and drop ones are fine).\n")
+  add("- Crafted gear: fine when someone in the guild can make it. Buy it from anyone, or ask the guild crafter to make it.\n")
   add("- Your light: green = all fine, yellow = check, red = not allowed. Hover or click it to see why.\n")
   add("\n" .. H("PROFESSIONS"))
-  add("- Food, flasks, potions, glyphs and anything only a profession makes: only if someone in your group knows the recipe.\n")
+  add("- Food, flasks, potions, glyphs and anything only a profession makes: only if someone in the guild knows the recipe.\n")
   add("- Recipes open with their patch (low-level and leveling recipes are open from the start).\n")
   add("\n" .. H("GOLD AND TRADING"))
   add("- Gold with guild members is fine: mail, COD, trade, guild bank.\n")
@@ -551,12 +617,15 @@ function RTH.RulesText()
   add("- Selling: always fine.\n")
   add("- Buying, if it's open in your phase: gear that drops, materials, recipes, pets, mounts, vendor food and reagents, "
     .. "holiday items, and everything else from your patch.\n")
-  add("- Things only a profession makes: only if someone in your group can make them.\n")
+  add("- Things only a profession makes: only if someone in the guild can make them.\n")
   add("- Bid and Buyout are greyed out for what you may not buy. Hover them to see why.\n")
   add("\n" .. H("GOOD TO KNOW"))
   add("- A red mark on an item means not allowed (yet) - hover it to see why and when it opens.\n")
   add("- Each character buys its own Tome of Cold Weather Flight, at level 77 or higher.\n")
-  add("- Reputation enchants (arcanums, shoulder inscriptions) need the wearer's own reputation.\n")
+  add("- Reputation enchants (arcanums, shoulder inscriptions) need the wearer's own reputation. A scribe's own "
+    .. "Master's Inscription needs none.\n")
+  add("- RTH warns you before a mistake: at a ready check, when an outsider joins, at the door of a raid that isn't "
+    .. "open yet, and before socketing a gem the guild can't make.\n")
   add("- A rule break that's wrong? Tell the guild master - only they can delete it.\n")
   return table.concat(t)
 end
@@ -575,8 +644,11 @@ function RTH.GearHint(reason)
   if reason:find("25%-man") then return "never allowed - take it off" end
   if reason:find("heirloom") then return "take it off before a boss" end
   if reason:find("until Phase") or reason:find("catching up") then return "opens later - take it off for now" end
-  if reason:find("nobody in the group can make") then return "a crafter in the group fixes it - or take it off" end
-  if reason:find("enchant") or reason:find("gem") then return "replace it with one your group can make" end
+  if reason:find("fine only if a guild member made it") then return "fine if a guild member made it - otherwise take it off" end
+  if reason:find("nobody in the guild can make") or reason:find("nobody in the guild knows this recipe") then
+    return "someone in the guild who learns the recipe fixes it - or take it off"
+  end
+  if reason:find("enchant") or reason:find("gem") then return "replace it with one the guild can make" end
   if reason:find("check manually") or reason:find("unsure") then return "ask the guild master" end
   return "take it off"
 end
@@ -603,12 +675,16 @@ end
 --   3. raw materials (the AH's Trade Goods and uncut gems that aren't crafted-only, old ones too): yes;
 --   4. anything else: yes, from the patch it came out in (RTH_AHPatch; rule 2026-11-22).
 local function craftSpellsOf(id)
+  -- (audit 2026-11-27) a consumable needs a crafter only when ONLY a profession makes it (RTH_UseItems /
+  -- RTH_CraftedOnly) - the same rule as using one. The 102 that also drop or come from quests, boxes or vendors
+  -- (Runic Healing Potion, Westfall Stew, stat scrolls...) were blocked on the AH but fine to use.
   local c = RTH_CraftedConsumables[id]
-  if c then return c.spells, c.phase, "it" end
+  if c and (RTH_UseItems[id] or (RTH_CraftedOnly and RTH_CraftedOnly[id])) then return c.spells, c.phase, "it" end
   local u = RTH_UseItems[id]
   if u then return u[4], u[2], "this " .. u[1] end
+  -- (a gem a vendor also sells - g.buy - is fine in your gear without a cutter, so on the AH too)
   local g = RTH_Gems[id]
-  if g and g.spells[1] then return g.spells, g.phase, "this gem" end
+  if g and g.spells[1] and not g.buy then return g.spells, g.phase, "this gem" end
   -- (phase = its earliest recipe's, like crafted items below: a 3.3 scroll says "not allowed until", not "nobody")
   local eb = RTH_EnchantItemBy[id]
   if eb then
@@ -877,6 +953,38 @@ do
     end
   end
 end
+-- Socketing (user 2026-11-28): a gem the group can't make (or not for your phase / profession) - asked BEFORE Apply.
+-- The socketing window's Apply button calls the global AcceptSockets by name (inline OnClick in the 3.3.5 XML; the
+-- "destroy the old gem?" popup too), and it isn't protected: wrapping it covers both.
+local function badGemsPlaced()
+  local out = {}
+  for i = 1, (GetNumSockets and GetNumSockets() or 0) do
+    local link = GetNewSocketLink and GetNewSocketLink(i)
+    local id = link and RTH.ParseLink(link)
+    local s, r = RTH.GemStatus(id)
+    if s == "bad" then out[#out + 1] = link .. ": " .. tostring(r) end
+  end
+  return out
+end
+do
+  local orig = AcceptSockets
+  if orig then
+    AcceptSockets = function(...)
+      if RTH.Active() then
+        local ok, bad = pcall(badGemsPlaced)
+        if ok and bad[1] then
+          local args = { ... }
+          RTH.ConfirmRuleBreak(table.concat(bad, "\n") .. "\n\nWearing " .. (bad[2] and "these gems" or "this gem")
+            .. " is a rule break (and a mark on the group's boss kills). Socket anyway?",
+            function() orig(unpack(args)) end)
+          return
+        end
+      end
+      return orig(...)
+    end
+  end
+end
+
 -- problem(index, ...) -> reason stops the call; after(index, ...) runs when it goes ahead (the Tome check)
 local function guardMail(name, problem, after)
   local orig = _G[name]

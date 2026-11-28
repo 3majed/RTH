@@ -61,10 +61,10 @@ RTH_Phases = {
   },
   { id=3, name="Trial tier", patch="3.2", maps={649,249},
     bosses = {
-      { name="Beasts of Northrend", stat=4028, statH=4030, npc=34797, kill="death" },
+      { name="Beasts of Northrend", stat=4028, statH=4030, npc=34797, kill="death", pull={34796,34799,35144} }, -- pull: Gormok + the worms (2026-11-28, from DBM)
       { name="Lord Jaraxxus", stat=4032, statH=4033, npc=34780, kill="death" },
       { name="Faction Champions", stat=4036, statH=4037, npc={34458,34451,34459,34448,34449,34445,34456,34447,34441,34454,34444,34455,34450,34453,34461,34460,34469,34467,34468,34471,34465,34466,34473,34472,34470,34463,34474,34475}, kill="yell" },
-      { name="Val'kyr Twins", stat=4040, statH=4041, npc=34496, kill="death" },
+      { name="Val'kyr Twins", stat=4040, statH=4041, npc=34496, kill="death", pull={34497} }, -- pull: Fjola (2026-11-28, from DBM)
       { name="Anub'arak", stat=4044, statH=4045, npc=34564, kill="death" },
     },
     required = { 3810 --[[A Tribute to Insanity (10 player)]] },
@@ -78,7 +78,7 @@ RTH_Phases = {
     bosses = {
       { name="Lord Marrowgar", stat=4639, statH=4640, npc=36612, kill="death" },
       { name="Lady Deathwhisper", stat=4643, statH=4654, npc=36855, kill="death" },
-      { name="Gunship Battle", stat=4644, statH=4659, npc={36939,37215}, kill="yell" },
+      { name="Gunship Battle", stat=4644, statH=4659, npc={36939,37215,36948,37540}, kill="yell" }, -- Horde + Alliance (Muradin, The Skybreaker) - added 2026-11-28
       { name="Deathbringer Saurfang", stat=4645, statH=4662, npc={37813}, kill="death" },
       { name="Festergut", stat=4646, statH=4665, npc=36626, kill="death" },
       { name="Rotface", stat=4647, statH=4668, npc=36627, kill="death" },

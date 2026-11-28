@@ -187,7 +187,7 @@ local function build(f)
     c.label:SetFontObject(GameFontHighlightSmall); UI.Outline(c.label)
     f.gateRows[i] = c
   end
-  f.gateOpt = UI.Check(f, "Optional raids (this phase's VoA boss, Onyxia) also count", function(on)
+  f.gateOpt = UI.Check(f, "Also needed: this phase's Vault boss (and Onyxia in Phase 3)", function(on)
     if not canEditGate(gatePhase) then UI.RefreshCurrent(); return end
     RTH.db.group.gates[gatePhase].opt = on
     gateChanged(gatePhase)

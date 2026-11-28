@@ -222,14 +222,19 @@ end
 
 -- The rows are reused: Blizzard's update only swaps font objects, which does NOT undo a SetTextColor. So a row
 -- tinted red stayed red after scrolling, collapsing a header or switching profession (Engineering's locked rows
--- showed up red in Mining). Every row we tint is flagged and given its own colour back once it isn't locked.
+-- showed up red in Mining). Giving the colour back once is not enough either: that SetTextColor sticks too, so
+-- the row kept the colour of whatever it showed at that moment (a grey trivial recipe made the yellow recipe
+-- scrolled onto that row later look grey - 2026-11-23). So once a row has been touched it stays flagged, and
+-- every pass paints it with the colour of the recipe it shows NOW.
 local function untint(button, text)
-  if not text.rthRed then return end
-  text.rthRed = nil
-  if button.isHighlighted then   -- the selected row: Blizzard shows it white (LockHighlight)
+  if not text.rthTinted then return end   -- never touched: Blizzard's font object colours it
+  local _, kind = GetTradeSkillInfo(button:GetID())
+  if kind ~= "header" and button:GetID() == GetTradeSkillSelectionIndex() then
+    -- the selected row: Blizzard shows it white (LockHighlight)
     text:SetTextColor(HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b)
-  elseif button.r then           -- its difficulty colour, set by TradeSkillFrame_Update on this pass
-    text:SetTextColor(button.r, button.g, button.b)
+  else
+    local c = TradeSkillTypeColor and TradeSkillTypeColor[kind]
+    if c then text:SetTextColor(c.r, c.g, c.b) end
   end
 end
 
@@ -242,7 +247,7 @@ local function tintTradeSkill()
       local spell = on and button:IsShown() and recipeSpell(button:GetID())
       if spell and not RTH.RecipeUnlocked(spell) then
         text:SetTextColor(1, 0.2, 0.2)
-        text.rthRed = true
+        text.rthTinted = true   -- stays set: see untint
       else
         untint(button, text)
       end

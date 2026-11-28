@@ -93,6 +93,17 @@ local function usableScan(name, reportT)
   return ins
 end
 
+-- Their report was made by an OLDER RTH than ours: its verdict uses that version's rules (2026-11-28: Glorify on
+-- 1.6.1 still showed the old "made by someone in the group" crafted-gear rule as a red line). Said on the row and
+-- in the hover, so an outdated verdict isn't read as a real problem.
+local function oldVersionNote(m)
+  local v = m and m.version
+  if type(v) == "string" and RTH.VersionNewer and RTH.VersionNewer(RTH.VERSION, v) then
+    return "  |cffffd040(old RTH " .. v .. ")|r", v
+  end
+  return "", nil
+end
+
 -- a member's line: your own gear live; others from the newer of the gear scan and their RTH report
 local function memberLine(name)
   local unit = RTH.UnitByName(name)
@@ -113,9 +124,10 @@ local function memberLine(name)
     return s, text .. (hasAddon and "" or "  |cffb8b8b8(no RTH)|r") .. old
   end
   if hasAddon then
-    if (m.gearBad or 0) > 0 then return "bad", m.gearReason or "gear not allowed" end
-    if (m.gearCheck or 0) > 0 then return "check", m.gearReason or "check manually" end
-    return "ok", "all gear allowed"
+    local old = oldVersionNote(m)
+    if (m.gearBad or 0) > 0 then return "bad", (m.gearReason or "gear not allowed") .. old end
+    if (m.gearCheck or 0) > 0 then return "check", (m.gearReason or "check manually") .. old end
+    return "ok", "all gear allowed" .. old
   end
   if ins and ins.status == "offline" then return nil, "offline" end
   if ins and ins.status == "far" then return nil, "out of range - get closer and Scan gear" end
@@ -174,6 +186,11 @@ function RTH.UI.MemberGearTip(tt, name)
   -- just the name and the problem items (no source / lockout / "all fine" lines - user, 2026-11-18)
   if not name then return end
   tt:AddLine(RTH.ClassColorName(name))
+  local _, oldV = oldVersionNote(name ~= RTH.PlayerName() and RTH.db.group.members[name] or nil)
+  if oldV then
+    tt:AddLine("uses RTH " .. oldV .. " (you have " .. RTH.VERSION .. "): this result follows that version's rules"
+      .. " and may be out of date - ask them to update", 1, 0.82, 0.2, true)
+  end
   local problems, checks
   if name == RTH.PlayerName() then
     problems, checks = RTH.CheckEquipped()
@@ -360,7 +377,7 @@ local function refresh(f)
   local rosterTxt = core .. " core + " .. subs .. " subs" .. (withRTH > 0 and (" + " .. withRTH .. " with RTH") or "")
   if outsiders > 0 then rosterTxt = rosterTxt .. " + |cffff4040" .. outsiders .. " outside|r" end
   facts[#facts + 1] = rosterTxt
-  -- catching up on an earlier gate: newer-phase kills with them in the raid get a mark
+  -- catching up on an earlier gate: the group should finish their gate first (a message, no mark - 2026-11-28)
   local behind = {}
   for _, unit in ipairs(units) do
     local n = RTH.UnitKey(unit)

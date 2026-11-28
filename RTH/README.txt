@@ -27,14 +27,16 @@ PHASES - EACH CHARACTER OPENS ITS OWN
   for THAT character, by itself - nobody has to unlock anything. It stays open for good.
 - The gate only counts what you earn in a clean guild run: each gate achievement (and the Vault of Archavon kill)
   must be earned at a boss kill that RTH logged on YOUR character, with no marks on it - no outsiders, not
-  25-man, no rule break or gear problem in the raid that night, nobody in the raid behind that raid's phase.
+  25-man, no rule break or gear problem in the raid that night.
   Earned before you had RTH, with RTH off, or at a marked kill: it doesn't count, and an achievement can't be
   earned twice - so keep RTH on and keep the raid clean.
 - The guild's phase (window header, "guild: Ulduar") is just the furthest anyone has reached. Behind it you're
-  "catching up": you follow the rules of YOUR phase (no newer gear, recipes or raids yet). Entering a newer raid
-  is a rule break for you, and kills of a newer raid with you in it get a mark.
-- Someone behind? The others may keep wearing their own phase's gear, go back to the behind player's raid and
-  help them finish their gate - nobody gets flagged for that.
+  "catching up": you follow the rules of YOUR phase (no newer gear or recipes yet), and only your own gate opens
+  your next phase.
+- Someone behind in the group? RTH tells everyone when you enter a newer raid or dungeon: "X is behind: Phase 1
+  gate 2/5 - finish their gate first". It's only a message - no rule break, no mark on the kills. Go back with
+  them and finish their gate together first. (Entering a raid or dungeon NOBODY in the guild has opened yet is
+  still a rule break.)
 - The guild master can still change a gate after people finished it, until someone STARTS the next phase (kills
   one of its bosses, wears its gear at 80, or finishes its gate) - then it's locked. Found a gate too easy? Add a
   requirement: whoever doesn't have it loses the next phase again until they get it (not a rule break).
@@ -49,13 +51,17 @@ The light in the window header: green = all your gear is fine, yellow = check, r
 the slot, the item, why and what to do - click it for the same list in chat.
 The rules in plain words: Rules tab > "How the rules work", or /rth rules.
 Food, flasks, potions, glyphs, gems and enchants that only a profession can make are only allowed when
-someone in the group knows the recipe (nobody has to gather the materials). Things you can buy from a vendor
+someone in the guild knows the recipe (nobody has to gather the materials). Things you can buy from a vendor
 or that drop are fine.
+Crafted gear: fine when someone in the guild can make it (knows the recipe). Then you may buy it from anyone
+(AH, trade) or ask the guild crafter to make it for you. Gear a guild member made always counts.
 Gear (what you wear) counts from level 80: while leveling, old and heirloom gear is fine. At 80 take heirlooms
 off before the first boss: RTH reminds you (chat + a popup) when you enter a dungeon or raid with one on, and a
 dungeon or raid boss kill with an heirloom still on is a rule break.
 Reputation enchants (arcanums, shoulder inscriptions): every character must earn the reputation itself.
 One bought on another character and used on an alt is flagged - the enchant needs the wearer's own standing.
+Scribes' own shoulder inscriptions (Master's Inscription) need no reputation - only the wearer must be a scribe.
+Enchants that only come from quests or drops (Zul'Gurub idols, Glyph of Chromatic Warding...) need no crafter.
 Tome of Cold Weather Flight: allowed in every phase, but each character (alts too) must buy it from the vendor
 itself at level 77 or higher. Taking one from the mail (sent by another character) is a rule break.
 Recipes open with the patch that added them - except low-level ones (below skill 350) and recipes for
@@ -69,14 +75,26 @@ Gold from or to anyone outside the guild is a rule break - so RTH stops it befor
 In a trade with a guild member, the Trade button is greyed out while their side holds an item you're not allowed
 to have (red mark) - ask them to take it out. A vendor item with a red mark asks "Buy it anyway?" first.
 A raid set to 25 players shows a warning before anyone zones in (10-man only).
+More warnings BEFORE a mistake (each one once, and only when something is wrong):
+- Ready check in a raid: anything that would mark the next boss kill (someone outside the group, more than 10
+  players, gear that isn't allowed, an heirloom at 80, a rule break earlier that night).
+- Someone outside the group, or an 11th player, joins your raid.
+- You walk up to the door of a raid nobody in the guild has opened yet (Ulduar, Trial of the Crusader, Onyxia,
+  Icecrown Citadel): a popup says don't go in.
+- Socketing a gem the group can't make (or not for your phase): RTH asks "Socket anyway?" before Apply.
+- Someone in the raid runs an older RTH (or you do): you're told who should update.
+- A gate achievement that doesn't count: a popup says why.
+Boss kills: RTH counts a kill from the game's kill statistic. If the server doesn't update it, RTH logs the kill
+itself when it sees the boss die (or when DBM, if you have it, reports the kill). Dying early in a long fight is
+no wipe - RTH waits until the whole raid is out of combat.
 Auction House: selling is always fine. Buying, if it's open in your phase (25-man loot never):
 - fine: gear that drops (BoE), raw materials (ore, herbs, cloth, uncut gems...), recipes, pets, mounts,
   and food, drinks and reagents a vendor sells for gold
 - anything only a profession makes (potions, glyphs, bars, bolts, crafted gear, bags, Darkmoon cards and
-  decks...) only if someone in the group knows the recipe
+  decks...) only if someone in the guild knows the recipe
 - everything else: fine from the patch it came out in (nearly all of it is 3.0 or older = phase 1).
 Holiday items (Brewfest, Hallow's End, Love is in the Air, Pilgrim's Bounty...): fine to buy and use, even
-crafted ones without a crafter in the group - but only from the phase their patch came out (e.g. the 3.3
+crafted ones without a crafter in the guild - but only from the phase their patch came out (e.g. the 3.3
 Love is in the Air perfumes from phase 4, Pilgrim's Bounty food from phase 3). Before that: red mark.
 Bid and Buyout are greyed out ("Blocked") for items you may not buy; hover for why.
 Mail, vendor and AH addons: all of this works with ElvUI's look too. Also covered:

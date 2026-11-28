@@ -33,10 +33,23 @@
 local RTH = RTH
 local PREFIX = "RTH"
 
+-- everyone in our raid / party is on the guild list (it's loaded): the GUILD copy already reaches them all, so the
+-- RAID / PARTY copy would only be a duplicate (raid night 2026-11-28: half the traffic). Anyone else in the group,
+-- or the guild list not loaded yet: send both, as before.
+local function allGroupInGuild()
+  if not (IsInGuild() and RTH.GuildRosterKnown and RTH.GuildRosterKnown()) then return false end
+  for _, u in ipairs(RTH.GroupUnits()) do
+    local n = RTH.UnitKey(u)
+    if not n or (n ~= RTH.PlayerName() and not RTH.IsGuildMember(n)) then return false end
+  end
+  return true
+end
 local function channels()
   local list = {}
-  if GetNumRaidMembers() > 0 then list[#list + 1] = "RAID"
-  elseif GetNumPartyMembers() > 0 then list[#list + 1] = "PARTY" end
+  local inGroup = GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0
+  if inGroup and not allGroupInGuild() then
+    list[#list + 1] = GetNumRaidMembers() > 0 and "RAID" or "PARTY"
+  end
   if IsInGuild() then list[#list + 1] = "GUILD" end
   return list
 end
@@ -1441,9 +1454,22 @@ RTH.Listen("PHASE_CHANGED", function() RTH.After("sendStatus", 2, function() RTH
 -- a new reputation standing can make an arcanum on your gear legal (or show one wasn't): tell the guild
 RTH.Listen("REP_CHANGED", function() RTH.After("sendStatus", 2, function() RTH.Send("S", myStatus()); sendGear() end) end)
 local lastGroupSize = 0
+-- (raid night 2026-11-28) a hello on every join made EVERY RTH in the guild resend everything (recipes too) - about
+-- 3000 messages while a 10-man raid formed. Guild members already swap their data at login and keep it current, so
+-- a join only says hello when someone in the group isn't a guild member whose RTH we heard from (a pug, a new member)
+local function groupNeedsHello()
+  for _, u in ipairs(RTH.GroupUnits()) do
+    local n = RTH.UnitKey(u)
+    if n and n ~= RTH.PlayerName() then
+      local m = RTH.db.group.members[n]
+      if not (RTH.IsGuildMember(n) and type(m) == "table" and type(m.seen) == "number") then return true end
+    end
+  end
+  return false
+end
 local function groupChanged()
   local n = math.max(GetNumRaidMembers(), GetNumPartyMembers())
-  if n > lastGroupSize then RTH.After("hello", 3, RTH.SayHello) end
+  if n > lastGroupSize and groupNeedsHello() then RTH.After("hello", 3, RTH.SayHello) end
   -- the Progress tab's gate line shows only the raid's people when in a raid: redraw it
   if n ~= lastGroupSize and RTH.UI and RTH.UI.RefreshCurrent then RTH.After("uiRefresh", 0.5, RTH.UI.RefreshCurrent) end
   lastGroupSize = n
